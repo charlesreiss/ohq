@@ -1,0 +1,18 @@
+{
+	"authors": [
+		"Luther A. Tychonievich"
+	],
+	"name": "ohq",
+	"license": "Public Domain",
+	"copyright": "Copyright © 2017, Luther A. Tychonievich",
+	"description": "Office hour queing backend",
+	"dependencies": {
+		"vibe-d:core": "~>0.8.1",
+		"vibe-d:data": "~>0.8.1",
+		"vibe-d:http": "~>0.8.1",
+		"dyaml": "~>0.6.3"
+	},
+	"versions": [
+		"VibeDefaultMain"
+	]
+}
