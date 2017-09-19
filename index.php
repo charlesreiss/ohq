@@ -6,7 +6,7 @@
 <?php
 $user = $_SERVER['PHP_AUTH_USER'];
 if ($user == "lat7h" && $_GET['user']) $user=$_GET['user'];
-if (strpos($_GET['user'], 'student_') === 0) $user = $_GET['user']; // beta only!
+// if (strpos($_GET['user'], 'student_') === 0) $user = $_GET['user']; // beta only!
 
 $token = bin2hex(openssl_random_pseudo_bytes(4)) . " " . date(DATE_ISO8601);
 file_put_contents("/opt/ohq/logs/sessions/$user", "$token");
@@ -15,6 +15,7 @@ file_put_contents("/opt/ohq/logs/sessions/$user", "$token");
 var socket;
 var user = "<?=$user;?>";
 var token = "<?=$token;?>";
+var loaded_at = new Date().getTime();
 
 var words = {
     20:"twenty",
@@ -36,28 +37,48 @@ function about(n) { // to match the approximation in the vibe program
     else return n;
 }
 
+function timedelta(t1, t2) {
+    var dt = t2-t1;
+    if (dt < 60) return ((dt+0.5)|0) + ' sec';
+    dt /= 60;
+    if (dt < 60) return ((dt+0.5)|0) + ' min';
+    dt /= 60;
+    return ((dt+0.5)|0) + ' hr';
+}
+function prettydate(t) {
+    var d = new Date(t*1000);
+    //console.log([t, d]);
+    var n = new Date();
+    var days = (n.getTime() - d.getTime())/1000;
+    if (days < 24*60*60) return timedelta(0,days) + ' ago';
+    return d.toTimeString().substring(0,5) + '\n' + d.toDateString().substring(0, 10);
+}
+
 function connect() {
     setText("connecting "+user+"...");
     var content = document.getElementById("content");
     socket = new WebSocket(getBaseURL() + "/ws");
     socket.onopen = function() {
-        setText("connected. waiting for update from server");
+        setText("connected; live updates enabled");
         socket.send(JSON.stringify({user:user, token:token, course:'cs1110'}));
     }
     socket.onmessage = function(message) {
-        console.log("message: " + message.data);
+        //console.log("message: " + message.data);
         var data = JSON.parse(message.data);
         var kind = data["type"];
         delete data["."];
         if (kind == 'error') {
             console.log(data.message);
             setText('ERROR: ' + data.message);
+            if (data.message.indexOf('currently closed') >= 0) {
+                alert("Office hours are currently closed;\nplease return between 3 and 9, Sunday through Thursday");
+            }
 
 ///////////////////////////// The Student Messages /////////////////////////////
         } else if (kind == 'lurk') {
-            content.innerHTML = '<p>There are currently '+about(data.crowd)+' people waiting for help</p>\
+            content.innerHTML = '<p>There are currently '+about(data.crowd)+' other students waiting for help</p>\
             <input type="hidden" name="req" value="request"/>\
-            <p><img src="//cs1110.cs.virginia.edu/StacksStickers.png"/>Location: <input type="text" name="where"/> (should be a seat number in Thorton Stacks; see label at your table or map to right)</p>\
+            <p><img class="float" src="//cs1110.cs.virginia.edu/StacksStickers.png"/>Location: <input type="text" name="where"/> (should be a seat number in Thorton Stacks; see label at your table or map to right)</p>\
             <p>Task: <select name="what">\
                 <option value="">(select one)</option>\
                 <option value="conceptual">non-homework help</option>\
@@ -86,40 +107,69 @@ function connect() {
                 <option value="pa23">PA23</option>\
                 <option value="project">Game Project</option>\
             </select></p>\
-            <input type="button" value="Request Help" onclick="sendForm()"/>';
+            <input type="button" value="Request Help" onclick="sendForm()"/>\
+            <input type="button" value="View your help history" onclick="history()"/>';
         } else if (kind == "line") {
             content.innerHTML = '<p>You are currently number '+(data.index+1)+' in line for getting help</p>\
             <input type="hidden" name="req" value="retract"/>\
-            <input type="button" value="Retract your help request" onclick="sendForm()"/>';
+            <input type="button" value="Retract your help request" onclick="sendForm()"/>\
+            <input type="button" value="View your help history" onclick="history()"/>';
         } else if (kind == "hand") {
-            content.innerHTML = '<p>You are currently one of '+about(data.crowd)+' people waiting for help</p>\
+            content.innerHTML = '<p>You are currently one of '+about(data.crowd)+' students waiting for help</p>\
             <input type="hidden" name="req" value="retract"/>\
-            <input type="button" value="Retract your help request" onclick="sendForm()"/>';
+            <input type="button" value="Retract your help request" onclick="sendForm()"/>\
+            <input type="button" value="View your help history" onclick="history()"/>';
         } else if (kind == "help") {
             content.innerHTML = '<p>'+data.by+' is helping you.</p>\
-            <p>There are currently '+data.crowd+' people waiting for help</p>';
-
+            <p>There are currently '+data.crowd+' people waiting for help</p>\
+            <input type="button" value="View your help history" onclick="history()"/>';
+        } else if (kind == "history") {
+            //console.log('history');
+            //console.log(data);
+            var tab = document.createElement('table');
+            tab.appendChild(document.createElement('thead'));
+            var row = tab.children[0].insertRow();
+            row.insertCell().appendChild(document.createTextNode('Request'));
+            row.insertCell().appendChild(document.createTextNode('Wait'));
+            row.insertCell().appendChild(document.createTextNode('Duration'));
+            row.insertCell().appendChild(document.createTextNode('Helper'));
+            tab.appendChild(document.createElement('tbody'));
+            for(var i = 0; i < data.events.length; i += 1) {
+                row = tab.children[1].insertRow();
+                var d = data.events[i];
+                row.insertCell().appendChild(document.createTextNode(prettydate(d.request)));
+                row.insertCell().appendChild(document.createTextNode(d.help ? timedelta(d.request, d.help) : timedelta(d.request, d.finish)));
+                row.insertCell().appendChild(document.createTextNode(d.help ? timedelta(d.help, d.finish) : '—'));
+                row.insertCell().appendChild(document.createTextNode(d.ta));
+            }
+            if (content.lastElementChild.tagName.toLowerCase() == 'table')
+                content.removeChild(content.lastElementChild);
+            content.appendChild(tab);
+            //console.log(tab);
+            
 /////////////////////////////// The TA Messages ///////////////////////////////
         } else if (kind == "watch") {
             if (data.crowd == 0) {
-                content.innerHTML = '<p>No one is waiting for help.</p>';
+                content.innerHTML = '<p>No one is waiting for help.</p>\
+                <input type="button" value="View your help history" onclick="history()"/>';
                 document.title = 'Empty OHs';
-                document.body.style.backgroundColor = '#dddad0';
+                document.body.style.backgroundColor = '#dad0dd';
             } else {
                 content.innerHTML = '<p>There are '+data.crowd+' people waiting for help.</p>\
                 <input type="hidden" name="req" value="help"/>\
-                <input type="button" value="Help one of them" onclick="sendForm()"/>';
+                <input type="button" value="Help one of them" onclick="sendForm()"/>\
+                <input type="button" value="View your help history" onclick="history()"/>';
                 document.title = data.crowd+ ' waiting people';
                 document.body.style.backgroundColor = '#ffff00';
             }
-        } else if (kind = "assist") {
-            if (data.crowd == 0) document.body.style.backgroundColor = '#dddad0';
+        } else if (kind == "assist") {
+            if (data.crowd == 0) document.body.style.backgroundColor = '#dad0dd';
             else document.body.style.backgroundColor = '#ffff00';
             
             content.innerHTML = '<p>You are helping '+data.name+' ('+data.id+') '
-            + '<img src="pics.php?filename='+data.id+'.jpg"/>'
+            + '<img class="float" src="pics.php?filename='+data.id+'.jpg"/>'
             + '</p>\
-            <p>Seat: <b>'+data.where+'</b><img src="//cs1110.cs.virginia.edu/StacksStickers.png"/></p><p>Problem: '+data.what+'</p>\
+            <p>Seat: <b>'+data.where+'</b><img class="float" src="//cs1110.cs.virginia.edu/StacksStickers.png"/></p><p>Problem: '+data.what+'</p>\
             <p>There are '+data.crowd+' other people waiting for help.</p>\
             <table style="border-collapse: collapse"><tbody>\
             <tr><td><input type="checkbox" value="absent"/></td><td> Not present</td></tr>\
@@ -134,14 +184,47 @@ function connect() {
             </tbody></table>\
             <input type="button" value="Finished helping" onclick="resolve()"/>\
             <input type="button" value="Return to queue unhelped" onclick="unhelp()"/>\
+            <input type="button" value="View your help history" onclick="history()"/>\
             ';
             document.title = 'Helping ('+data.crowd + ' waiting people)';
+        } else if (kind == "ta-history") {
+            var tab = document.createElement('table');
+            tab.appendChild(document.createElement('thead'));
+            var row = tab.children[0].insertRow();
+            row.insertCell().appendChild(document.createTextNode('Help'));
+            row.insertCell().appendChild(document.createTextNode('Duration'));
+            row.insertCell().appendChild(document.createTextNode('Wait'));
+            row.insertCell().appendChild(document.createTextNode('Name'));
+            row.insertCell().appendChild(document.createTextNode('ID'));
+            row.insertCell().appendChild(document.createTextNode('Picture'));
+            row.insertCell().appendChild(document.createTextNode('Task'));
+            row.insertCell().appendChild(document.createTextNode('Seat'));
+            tab.appendChild(document.createElement('tbody'));
+            for(var i = 0; i < data.events.length; i += 1) {
+                row = tab.children[1].insertRow();
+                var d = data.events[i];
+                row.insertCell().appendChild(document.createTextNode(prettydate(d.finish)));
+                row.insertCell().appendChild(document.createTextNode(timedelta(d.help, d.finish)));
+                row.insertCell().appendChild(document.createTextNode(timedelta(d.request, d.help)));
+                row.insertCell().appendChild(document.createTextNode(d.name));
+                row.insertCell().appendChild(document.createTextNode(d.id));
+                row.insertCell().innerHTML = '<img class="small" src="pics.php?filename='+d.id+'.jpg"/>';
+                row.insertCell().appendChild(document.createTextNode(d.what));
+                row.insertCell().appendChild(document.createTextNode(d.where));
+            }
+            if (content.lastElementChild.tagName.toLowerCase() == 'table')
+                content.removeChild(content.lastElementChild);
+            content.appendChild(tab);
+            // console.log(tab);
         } else {
-            setText(kind + ": " + message.data);
+            setText("Unexpected message \""+kind+"\" (please report this to the professor)");
         }
     }
     socket.onclose = function() {
         setText("connection closed; reload page to make a new connection.");
+        var now = new Date().getTime();
+        if (loaded_at +10*1000 < now) // at least 10 seconds to avoid refresh frenzy
+            setTimeout(function(){window.location.reload(false);}, 10);
     }
     socket.onerror = function() {
         setText("error connecting to server");
@@ -189,6 +272,9 @@ function resolve() {
 function unhelp() {
     socket.send('{"req":"unhelp"}');
 }
+function history() {
+    socket.send('{"req":"history"}');
+}
 function closeConnection() {
     socket.close();
     setText("connection closed; reload page to make a new connection.");
@@ -196,7 +282,10 @@ function closeConnection() {
 
 function setText(text) {
     console.log("text: ", text);
-    if (socket && socket.readyState >= socket.CLOSING) text = "(unconnected) "+text;
+    if (socket && socket.readyState >= socket.CLOSING) {
+        text = "(unconnected) "+text;
+        document.title = "(unconnected) Office Hours";
+    }
     document.getElementById("timer").innerHTML += "\n"+text;
 }
 
@@ -209,9 +298,10 @@ function getBaseURL() {
         #wrapper { 
             padding:1em; border-radius:1em; background:white;
         }
-        body { background: #dddad0; font-family: sans-serif; }
+        body { background: #dad0dd; font-family: sans-serif; }
         pre#timer {
-            border: 1px solid black;
+            border: 1px solid grey;
+            color: grey;
         }
         input[type="checkbox"] {
             width:3em; height:3em; display:inline-block;
@@ -220,22 +310,19 @@ function getBaseURL() {
             height:3em;
         }
         input, option, select { font-size:100%; }
-        #editor {
-            border:thin solid grey;
-            min-height:5em;
-            width:100%;
-            font-size:100%;
-        }
         td { padding:0.5ex; }
-        tr.failed { background-color:#fdd; }
-        tr.passed { background-color:#dfd; }
-        img { float:right; max-width:50%; clear:both; }
+        img.float { float:right; max-width:50%; clear:both; }
+        img.small { max-height:5em; }
+        thead { font-weight: bold; }
+        tr:nth-child(2n) { background-color:#eee; }
+        table { border-collapse: collapse; }
     </style>
 </head>
 <body onLoad="connect()">
     <div id="wrapper">
+        <p>TA office hours are held in Thorton Stacks, 3–9pm Sunday through Thursday. Outside of that time, this page will be ignored by course staff.</p>
         <div id="content"></div>
-        <pre id="timer"></pre>
+        <pre id="timer">(client-server status log)</pre>
     </div>
 </body>
 </html>

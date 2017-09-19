@@ -20,7 +20,7 @@ final class Help {
     ulong priority() { return s.priority; }
 }
 final class Student {
-    string id, name, picture;
+    string id, name;
     Help[] history;
     Status status;
     uint lastHelped() {
@@ -57,6 +57,14 @@ final class Student {
         Help h = history[$-1];
         h.fin = stamp(when);
         h.notes = "retracted";
+        status = Status.lurk;
+        return h;
+    }
+    Help close(uint when = 0) {
+        if (status != Status.hand && status != Status.line) return null;
+        Help h = history[$-1];
+        h.fin = stamp(when);
+        h.notes = "OH closed";
         status = Status.lurk;
         return h;
     }
@@ -126,7 +134,6 @@ final class Course {
                                 addStudent(
                                     data["id"].get!string, 
                                     "name" in data ? data["name"].get!string : null,
-                                    "picture" in data ? data["picture"].get!string : null,
                                     false);
                                 break;
                             case "ta":
@@ -146,6 +153,13 @@ final class Course {
                                 break;
                             case "retract":
                                 retract(
+                                    students[data["student"].get!string],
+                                    data["when"].get!uint
+                                );
+                                fillLine;
+                                break;
+                            case "close":
+                                close(
                                     students[data["student"].get!string],
                                     data["when"].get!uint
                                 );
@@ -204,124 +218,155 @@ final class Course {
             "name":name,
         ])~'\n');
     }
-    void addStudent(string id, string name, string picture, bool log=true) {
+    void addStudent(string id, string name, bool log=true) {
         if (id !in students) students[id] = new Student;
         students[id].id = id;
         if (name) students[id].name = name;
-        if (picture) students[id].picture = picture;
         if (log) appendToFile(logfile, serializeToJsonString([
             "action":"student",
             "id":id,
             "name":name,
-            "picture":picture,
         ])~'\n');
     }
     
     /// TA action wrappers (forwards to TA class, logs, and manages queue)
     bool help(TA from, Help h, uint when = 0) {
-        if (from.help(h, when)) {
-            line.remove(h);
-            fillLine();
-            if (!when) {
-                appendToFile(logfile, serializeToJsonString([
-                    "action":Json("help"),
-                    "ta":Json(from.id),
-                    "student":Json(h.s.id),
-                    "when":Json(h.hlp),
-                ])~'\n');
-                event.emit;
-            }
-            return true;
-        } else return false;
+        try {
+            if (from.help(h, when)) {
+                line.remove(h);
+                fillLine();
+                if (!when) {
+                    appendToFile(logfile, serializeToJsonString([
+                        "action":Json("help"),
+                        "ta":Json(from.id),
+                        "student":Json(h.s.id),
+                        "when":Json(h.hlp),
+                    ])~'\n');
+                    event.emit;
+                }
+                return true;
+            } else return false;
+        } catch (Exception ex) { import app; app.trace("exception in help: ", ex); return false; }
     }
     bool helpFirst(TA from, uint when = 0) {
-        if (!line.empty) {
-            Help h;
-            foreach(i; 0..line.length) { // skip ones previously returned to line, if possible
-                h = line[i];
-                logInfo(text("help consideration ", i, ": h.t is ", h.t));
-                if (h.t != from) break;
+        try {
+            if (!line.empty) {
+                Help h;
+                foreach(i; 0..line.length) { // skip ones previously returned to line, if possible
+                    h = line[i];
+                    logInfo(text("help consideration ", i, ": h.t is ", h.t));
+                    if (h.t != from) break;
+                }
+                if (h.t == this) h = line.front;
+                return help(from, h, when);
             }
-            if (h.t == this) h = line.front;
-            return help(from, h, when);
-        }
-        return false;
+            return false;
+        } catch(Exception ex) { import app; app.trace("exception in helpFirst: ", ex); return false; }
     }
     /// ditto
     bool unhelp(TA from, uint when = 0) {
-        Help h = from.unhelp;
-        if (h !is null) {
-            version(all) { // return to front of line
-                line.addInFront(h);
-                h.s.status = Status.line;
-            } else { // return to crowd
-                hands.insert(h);
-                fillLine();
-            }
-            if (!when) {
-                appendToFile(logfile, serializeToJsonString([
-                    "action":Json("unhelp"),
-                    "ta":Json(from.id),
-                    "when":Json(stamp),
-                ])~'\n');
-                event.emit;
-            }
-            return true;
-        } else return false;
+        try {
+            Help h = from.unhelp;
+            if (h !is null) {
+                version(all) { // return to front of line
+                    line.addInFront(h);
+                    h.s.status = Status.line;
+                } else { // return to crowd
+                    hands.insert(h);
+                    fillLine();
+                }
+                if (!when) {
+                    appendToFile(logfile, serializeToJsonString([
+                        "action":Json("unhelp"),
+                        "ta":Json(from.id),
+                        "when":Json(stamp),
+                    ])~'\n');
+                    event.emit;
+                }
+                return true;
+            } else return false;
+        } catch(Exception ex) { import app; app.trace("exception in unhelp: ", ex); return false; }
     }
     /// ditto
     bool resolve(TA from, string notes, uint when = 0) {
-        if (from.resolve(notes, when)) {
-            if (!when) {
-                appendToFile(logfile, serializeToJsonString([
-                    "action":Json("resolve"),
-                    "ta":Json(from.id),
-                    "notes":Json(notes),
-                    "when":Json(from.history[$-1].fin),
-                ])~'\n');
-                event.emit;
-            }
-            return true;
-        } else return false;
+        try {
+            if (from.resolve(notes, when)) {
+                if (!when) {
+                    appendToFile(logfile, serializeToJsonString([
+                        "action":Json("resolve"),
+                        "ta":Json(from.id),
+                        "notes":Json(notes),
+                        "when":Json(from.history[$-1].fin),
+                    ])~'\n');
+                    event.emit;
+                }
+                return true;
+            } else return false;
+        } catch(Exception ex) { import app; app.trace("exception in resolve: ", ex); return false; }
     }
     
     /// Student action wrappers (forwards to TA class, logs, and manages queue)
     bool request(Student from, string where, string what, uint when = 0) {
-        Help h = from.request(where, what, when);
-        if (h !is null) {
-            hands.insert(h);
-            fillLine();
-            if (!when) {
-                appendToFile(logfile, serializeToJsonString([
-                    "action":Json("request"),
-                    "student":Json(from.id),
-                    "where":Json(where),
-                    "what":Json(what),
-                    "when":Json(h.req),
-                ])~'\n');
-                event.emit;
-            }
-            return true;
-        } else return false;
+        try {
+            Help h = from.request(where, what, when);
+            if (h !is null) {
+                hands.insert(h);
+                fillLine();
+                if (!when) {
+                    appendToFile(logfile, serializeToJsonString([
+                        "action":Json("request"),
+                        "student":Json(from.id),
+                        "where":Json(where),
+                        "what":Json(what),
+                        "when":Json(h.req),
+                    ])~'\n');
+                    event.emit;
+                }
+                return true;
+            } else return false;
+        } catch(Exception ex) { import app; app.trace("exception in request: ", ex); return false; }
     }
     /// ditto
     bool retract(Student from, uint when = 0) {
-        bool hand = from.status == Status.hand;
-        Help h = from.retract(when);
-        if (h !is null) {
-            if (hand) hands.remove(h);
-            else line.remove(h);
-            fillLine();
-            if (!when) {
-                appendToFile(logfile, serializeToJsonString([
-                    "action":Json("retract"),
-                    "student":Json(from.id),
-                    "when":Json(stamp),
-                ])~'\n');
-                event.emit;
-            }
-            return true;
-        } else return false;
+        try {
+            bool hand = from.status == Status.hand;
+            Help h = from.retract(when);
+            if (h !is null) {
+                if (hand) hands.remove(h);
+                else line.remove(h);
+                fillLine();
+                if (!when) {
+                    appendToFile(logfile, serializeToJsonString([
+                        "action":Json("retract"),
+                        "student":Json(from.id),
+                        "when":Json(stamp),
+                    ])~'\n');
+                    event.emit;
+                }
+                return true;
+            } else return false;
+        } catch(Exception ex) { import app; app.trace("exception in retract: ", ex); return false; }
+    }
+    /// ditto
+    bool close(Student from, uint when = 0) {
+        try {
+            bool hand = from.status == Status.hand;
+            Help h = from.close(when);
+            if (h !is null) {
+                if (hand) hands.remove(h);
+                else line.remove(h);
+                fillLine();
+                if (!when) {
+                    appendToFile(logfile, serializeToJsonString([
+                        "action":Json("close"),
+                        "student":Json(from.id),
+                        "when":Json(stamp),
+                    ])~'\n');
+                    event.emit;
+                }
+                return true;
+            } else return false;
+        } catch(Exception ex) { import app; app.trace("exception in close: ", ex); return false; }
     }
 }
 
@@ -407,7 +452,7 @@ version(none) {
         c.addTA("ta1", "TA 1", false);
         c.addTA("ta2", "TA 2", false);
         foreach(i; 0..50) {
-            c.addStudent(text('s',i+1), text("Student ",i+1), null, false);
+            c.addStudent(text('s',i+1), text("Student ",i+1), false);
         }
         c.request(c.students["s12"], "home", "hard things", 12);
         c.request(c.students["s20"], "home", "hard things", 20);

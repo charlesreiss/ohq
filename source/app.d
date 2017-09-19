@@ -17,7 +17,13 @@ enum datadir = "/opt/ohq/logs/"; // should exist and contain sessions/
 Course[string] courses;
 shared string[string] session_key;
 
+void trace(T...)(T args) {
+//    import vibe.core.file;
+//    appendToFile(datadir~"debug.log", text(args, '\n'));
+}
+
 void trackSessions() {
+trace(`-> trackSessions()`);
     DirectoryWatcher sessions = watchDirectory(datadir ~ "sessions");
     DirectoryChange[] changes;
     while(sessions.readChanges(changes))
@@ -25,12 +31,22 @@ void trackSessions() {
             if (change.type == DirectoryChangeType.modified)
                 session_key[change.path.head.toString] = readFileUTF8(change.path);
         }
+trace(`<- trackSessions()`);
 }
 
 size_t fuzzNum(size_t t) {
     if (t < 20) return t;
     if (t < 100) return ((t+5)/10)*10;
     return ((t+50)/100)*100;
+}
+
+bool isOpen() {
+    import std.datetime;
+    auto now = Clock.currTime;
+    if  (   now.dayOfWeek == DayOfWeek.fri
+        ||  now.dayOfWeek == DayOfWeek.sat
+        ) return false;
+    return (now.hour >= 15) && (now.hour < 21);
 }
 
 
@@ -41,9 +57,14 @@ void userSession(scope WebSocket socket) {
     // redirect to TA or Student handler
     
     if (!socket.waitForData) return;
+trace(`-> userSession(socket)`);
     Json auth;
     try { auth = parseJsonString(socket.receiveText); }
-    catch (Exception ex) { socket.send(`{"type":"error","message":"failed to authenticate"}`); return; }
+    catch (Exception ex) { 
+        socket.send(`{"type":"error","message":"failed to authenticate"}`); 
+trace(`<- userSession(socket)`);
+        return; 
+    }
     string user = auth["user"].get!string,
         token = auth["token"].get!string,
         course = auth["course"].get!string;
@@ -53,6 +74,7 @@ void userSession(scope WebSocket socket) {
             ["type":"reauthenticate"
             ,"message":(user in session_key ? session_key[user][9..$] : "")
             ]));
+trace(`<- userSession(socket)`);
         return;
     }
     if (course !in courses) {
@@ -68,6 +90,7 @@ void userSession(scope WebSocket socket) {
                 ["type":"error"
                 ,"message":"invalid course: "~course
                 ]));
+trace(`<- userSession(socket)`);
             return;
         }
     }
@@ -81,9 +104,11 @@ void userSession(scope WebSocket socket) {
             ["type":"error"
             ,"message":user ~ " is not enrolled in "~course
             ]));
+trace(`<- userSession(socket)`);
 }
 
 void taSession(Course c, TA t, scope WebSocket socket) {
+trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
     Status status = Status.lurk;
     size_t position = size_t.max;
     
@@ -109,7 +134,6 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                             "type":Json("assist"),
                             "id":Json(h.s.id),
                             "name":Json(h.s.name),
-                            "picture":Json(h.s.picture),
                             "what":Json(h.task),
                             "where":Json(h.loc),
                             "crowd":Json(position),
@@ -150,12 +174,11 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                     foreach_reverse(h; t.history) {
                         if (h.fin > 0)
                             helps ~= Json([
-                                "request":Json(h.req*1000),
-                                "help":Json(h.hlp*1000),
-                                "finish":Json(h.fin*1000),
+                                "request":Json(h.req),
+                                "help":Json(h.hlp),
+                                "finish":Json(h.fin),
                                 "id":Json(h.s.id),
                                 "name":Json(h.s.name),
-                                "picture":Json(h.s.picture),
                                 "what":Json(h.task),
                                 "where":Json(h.loc),
                             ]);
@@ -178,16 +201,34 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                 ]));
         }
     }
-    
+    c.event.emit;
     writer.join;
+trace(`<- taSession(`,c.logfile,`, `, t.id, `)`);
 }
 
 void studentSession(Course c, Student s, scope WebSocket socket) {
+    if (!isOpen) {
+        socket.send(serializeToJsonString(
+            ["type":"error"
+            ,"message":"Office hours are currently closed"
+            ]));
+        return;
+    }
+trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
+
     Status status = Status.lurk;
     size_t position = size_t.max;
     
     auto writer = runTask({
         while(socket.connected) {
+            if (!isOpen) {
+                socket.send(serializeToJsonString(
+                    ["type":"error"
+                    ,"message":"Office hours are currently closed"
+                    ]));
+                socket.close();
+                break;
+            }
             // logInfo("Student "~s.id~" got event");
             bool resend = (s.status != status);
             status = s.status;
@@ -236,6 +277,14 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
     });
     
     while(socket.waitForData) {
+        if (!isOpen) {
+            socket.send(serializeToJsonString(
+                ["type":"error"
+                ,"message":"Office hours are currently closed"
+                ]));
+            socket.close();
+            break;
+        }
         auto message = socket.receiveText;
         // logInfo("Student "~s.id~" sent message " ~ message);
         try {
@@ -263,9 +312,9 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
                     foreach_reverse(h; s.history) {
                         if (h.fin > 0)
                             helps ~= Json([
-                                "request":Json(h.req*1000),
-                                "help":Json(h.hlp*1000),
-                                "finish":Json(h.fin*1000),
+                                "request":Json(h.req),
+                                "help":Json(h.hlp),
+                                "finish":Json(h.fin),
                                 "ta":Json(h.t is null ? "none" : h.t.name),
                             ]);
                     }
@@ -288,7 +337,10 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
         }
     }
     
+    c.event.emit;
     writer.join;
+trace(`<- studentSession(`,c.logfile,`, `, s.id, `)`);
+
 }
 
 
@@ -301,7 +353,13 @@ shared static this() {
     settings.bindAddresses = ["::1", "127.0.0.1", "128.143.63.34"];
     settings.tlsContext = createTLSContext(TLSContextKind.server);
     settings.tlsContext.useCertificateChainFile("server.cer");
-    settings.tlsContext.usePrivateKeyFile("server.key");
+    settings.tlsContext.usePrivateKeyFile("server-pk8.key");
+    // openssl crashed (see dmesg) but boson can't read the key files 
+    // dub.json "subConfigurations": {"vibe-d:tls":"botan"},
+    // gives botan.utils.exceptn.DecodingError@../../zf14/lat7h/.dub/packages/botan-1.12.9/botan/source/botan/pubkey/pkcs8.d(274): Invalid argument: Decoding error: PKCS #8 private key decoding failed: Invalid argument: Decoding error: PKCS #8: Unsupported format: PKCS#1 RSA Private Key file
+    // fixed with openssl pkcs8 -in server.key -out server-pk8.key -topk8 -nocrypt
+    // then the moment it negotiates contact, we get a segfault
+
 
     auto router = new URLRouter;
     router.get("/ws", handleWebSockets(&userSession));
@@ -311,13 +369,22 @@ shared static this() {
     runTask({
         while (true) {
             sleep(10.minutes);
+trace(`-> bookkeeping`);
             auto now = stamp;
             auto hour_ago = now - 60*60;
             foreach(n,c; courses)
                 foreach(i,t; c.tas)
                     if (t.status == Status.help && t.history[$-1].hlp < hour_ago)
                         c.resolve(t, "runaway session");
+            if (!isOpen)
+                foreach(n,c; courses)
+                    foreach(i,s; c.students)
+                        if (s.status != Status.lurk)
+                            c.close(s);
+                
+trace(`<- bookkeeping`);
         }
     });
+    trace("==================================================================");
     listenHTTP(settings, router);
 }
