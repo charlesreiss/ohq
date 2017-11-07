@@ -122,14 +122,21 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
             if (tmp != position) { position = tmp; resend = true; }
             
             if (c.ta_online.length != tacount) {
-                auto msg = `{"type":"ta-set","tas":[`;
-                bool comma = false;
-                foreach(tan; c.ta_online) {
-                    if (comma) msg ~= `,`;
-                    msg ~= `"` ~ tan ~ `"`;
-                    comma = false;
+                version(none) { // Json(string[]) fails
+                    socket.send(serializeToJsonString([
+                            "type":Json("ta-set"),
+                            "crowd":Json(c.ta_online),
+                        ]));
+                } else {
+                    auto msg = `{"type":"ta-set","tas":[`;
+                    bool comma = false;
+                    foreach(tan; c.ta_online) {
+                        if (comma) msg ~= `,`;
+                        msg ~= `"` ~ tan ~ `"`;
+                        comma = true;
+                    }
+                    socket.send(msg ~ `]}`);
                 }
-                socket.send(msg ~ `]}`);
                 tacount = c.ta_online.length;
             }
             

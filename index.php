@@ -63,7 +63,7 @@ function connect() {
         socket.send(JSON.stringify({user:user, token:token, course:'cs1110'}));
     }
     socket.onmessage = function(message) {
-        //console.log("message: " + message.data);
+        console.log("message: " + message.data);
         var data = JSON.parse(message.data);
         var kind = data["type"];
         delete data["."];
@@ -215,7 +215,9 @@ function connect() {
             content.appendChild(tab);
             // console.log(tab);
         } else if (kind == "ta-set") {
-            document.getElementById("misc").innerHTML = data.tas.length + " TA"+(data.tas.length == 1 ? '' : 's')+" online: <span class='ta'>" + data.tas.join("</span>; <span class='ta'>") + "</span>";
+            var tas = data.tas.sort().filter(function(el,i,a){return !i||el!=a[i-1];});
+            console.log(tas);
+            document.getElementById("misc").innerHTML = tas.length + " TA"+(tas.length == 1 ? '' : 's')+" online: <span class='ta'>" + tas.join("</span>; <span class='ta'>") + "</span>";
         } else if (kind == "reauthenticate") {
             window.location.reload(false);
             setText("Unexpected message \""+kind+"\" (please report this to the professor if it stays on the screen)");

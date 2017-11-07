@@ -108,10 +108,9 @@ final class Course {
     Student[string] students;
     
     import std.container.binaryheap2;
-    import std.container.rbtree;
     BinaryHeap!(Help[], "a.priority > b.priority") hands;
-    auto ta_online = redBlackTree!(true, string)();
     Queue!Help line;
+    string[] ta_online;
     
     string logfile;
     
@@ -233,18 +232,18 @@ final class Course {
     }
     
     bool ta_arrive(TA whom) {
-        if (0 != ta_online.insert(whom.name)) {
-            event.emit;
-            return true;
-        }
-        return false;
+        ta_online ~= whom.name;
+        event.emit;
+        return true;
     }
     bool ta_depart(TA whom) {
-        if (0 != ta_online.removeKey(whom.name)) {
-            event.emit;
-            return true;
-        }
-        return false;
+        size_t i=0;
+        while(i < ta_online.length && ta_online[i] != whom.name) i+=1;
+        if (i == ta_online.length) return false;
+        foreach(j; i+1..ta_online.length) ta_online[j-1] = ta_online[j];
+        ta_online.length = ta_online.length - 1;
+        event.emit;
+        return true;
     }
     
     
