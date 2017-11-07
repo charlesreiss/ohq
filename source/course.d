@@ -108,7 +108,9 @@ final class Course {
     Student[string] students;
     
     import std.container.binaryheap2;
+    import std.container.rbtree;
     BinaryHeap!(Help[], "a.priority > b.priority") hands;
+    auto ta_online = redBlackTree!(true, string)();
     Queue!Help line;
     
     string logfile;
@@ -229,6 +231,22 @@ final class Course {
             "name":name,
         ])~'\n');
     }
+    
+    bool ta_arrive(TA whom) {
+        if (0 != ta_online.insert(whom.name)) {
+            event.emit;
+            return true;
+        }
+        return false;
+    }
+    bool ta_depart(TA whom) {
+        if (0 != ta_online.removeKey(whom.name)) {
+            event.emit;
+            return true;
+        }
+        return false;
+    }
+    
     
     /// TA action wrappers (forwards to TA class, logs, and manages queue)
     bool help(TA from, Help h, uint when = 0) {

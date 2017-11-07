@@ -215,7 +215,7 @@ function connect() {
             content.appendChild(tab);
             // console.log(tab);
         } else if (kind == "ta-set") {
-            document.getElementById("misc").innerHTML = data.tas.length + " TAs online: <span class='ta'>" + data.tas.join("</span>; <span class='ta'>") + "</span>";
+            document.getElementById("misc").innerHTML = data.tas.length + " TA"+(data.tas.length == 1 ? '' : 's')+" online: <span class='ta'>" + data.tas.join("</span>; <span class='ta'>") + "</span>";
         } else if (kind == "reauthenticate") {
             window.location.reload(false);
             setText("Unexpected message \""+kind+"\" (please report this to the professor if it stays on the screen)");
@@ -319,6 +319,8 @@ function getBaseURL() {
         thead { font-weight: bold; }
         tr:nth-child(2n) { background-color:#eee; }
         table { border-collapse: collapse; }
+        #misc { margin-top:0.5em; }
+        #misc .ta { padding: 0.5ex; margin:0.5ex; border-radius:1ex; background: #dad0dd; }
     </style>
 </head>
 <body onLoad="connect()">

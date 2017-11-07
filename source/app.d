@@ -111,6 +111,7 @@ void taSession(Course c, TA t, scope WebSocket socket) {
 trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
     Status status = Status.lurk;
     size_t position = size_t.max;
+    size_t tacount = size_t.max;
     
     auto writer = runTask({
         while(socket.connected) {
@@ -119,6 +120,19 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
             status = t.status;
             auto tmp = c.hands.length + c.line.length;
             if (tmp != position) { position = tmp; resend = true; }
+            
+            if (c.ta_online.length != tacount) {
+                auto msg = `{"type":"ta-set","tas":[`;
+                bool comma = false;
+                foreach(tan; c.ta_online) {
+                    if (comma) msg ~= `,`;
+                    msg ~= `"` ~ tan ~ `"`;
+                    comma = false;
+                }
+                socket.send(msg ~ `]}`);
+                tacount = c.ta_online.length;
+            }
+            
             if (resend)
                 final switch(status) {
                     case Status.lurk:
@@ -149,6 +163,8 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
             c.event.wait;
         }
     });
+    
+    c.ta_arrive(t);
     
     while(socket.waitForData) {
         auto message = socket.receiveText;
@@ -201,6 +217,9 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
                 ]));
         }
     }
+
+    c.ta_depart(t);
+
     c.event.emit;
     writer.join;
 trace(`<- taSession(`,c.logfile,`, `, t.id, `)`);
