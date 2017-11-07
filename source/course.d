@@ -44,6 +44,7 @@ final class Student {
         return ans;
     }
     Help request(string where, string what, uint when = 0) {
+        if (status != Status.lurk) return null;
         Help h = new Help;
         h.req = stamp(when);
         h.task = what; h.loc = where;

@@ -82,6 +82,15 @@ function connect() {
             <p>Task: <select name="what">\
                 <option value="">(select one)</option>\
                 <option value="conceptual">non-homework help</option>\
+                <option value="pa14">PA14 - roman.py</option>\
+                <option value="pa15">PA15 - credit_card.py</option>\
+                <option value="pa16">PA16 - matchmaker.py</option>\
+                <option value="pa17">PA17 - lous_list.py</option>\
+                <option value="pa18">PA18 - spellcheck.py</option>\
+                <option value="pa19">PA19 - flappybird.py</option>\
+                <option value="pa20">PA20 - regexs.py</option>\
+                <option value="pa21">PA21 - salary.py</option>\
+                <option value="project">Game Project</option>\
                 <option value="pa01">PA01 - greeting.py</option>\
                 <option value="pa02">PA02 - nonsense.py</option>\
                 <option value="pa03">PA03 - dating.py</option>\
@@ -91,21 +100,10 @@ function connect() {
                 <option value="pa07">PA07 - quadratic.py</option>\
                 <option value="pa08">PA08 - bmr.py</option>\
                 <option value="pa09">PA09 - averages.py</option>\
-                <option value="pa10">PA10</option>\
-                <option value="pa11">PA11</option>\
-                <option value="pa12">PA12</option>\
-                <option value="pa13">PA13</option>\
-                <option value="pa14">PA14</option>\
-                <option value="pa14">PA14</option>\
-                <option value="pa16">PA16</option>\
-                <option value="pa17">PA17</option>\
-                <option value="pa18">PA18</option>\
-                <option value="pa19">PA19</option>\
-                <option value="pa20">PA20</option>\
-                <option value="pa21">PA21</option>\
-                <option value="pa22">PA22</option>\
-                <option value="pa23">PA23</option>\
-                <option value="project">Game Project</option>\
+                <option value="pa10">PA10 - calculator.py</option>\
+                <option value="pa11">PA11 - rumple.py</option>\
+                <option value="pa12">PA12 - higher_lower.py</option>\
+                <option value="pa13">PA13 - higher_lower_player.py</option>\
             </select></p>\
             <input type="button" value="Request Help" onclick="sendForm()"/>\
             <input type="button" value="View your help history" onclick="history()"/>';
@@ -216,6 +214,11 @@ function connect() {
                 content.removeChild(content.lastElementChild);
             content.appendChild(tab);
             // console.log(tab);
+        } else if (kind == "ta-set") {
+            document.getElementById("misc").innerHTML = data.tas.length + " TAs online: <span class='ta'>" + data.tas.join("</span>; <span class='ta'>") + "</span>";
+        } else if (kind == "reauthenticate") {
+            window.location.reload(false);
+            setText("Unexpected message \""+kind+"\" (please report this to the professor if it stays on the screen)");
         } else {
             setText("Unexpected message \""+kind+"\" (please report this to the professor)");
         }
@@ -322,6 +325,7 @@ function getBaseURL() {
     <div id="wrapper">
         <p>TA office hours are held in Thorton Stacks, 3–9pm Sunday through Thursday. Outside of that time, this page will be ignored by course staff.</p>
         <div id="content"></div>
+        <div id="misc"></div>
         <pre id="timer">(client-server status log)</pre>
     </div>
 </body>

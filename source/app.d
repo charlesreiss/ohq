@@ -214,6 +214,7 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
             ]));
         return;
     }
+
 trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
 
     Status status = Status.lurk;
