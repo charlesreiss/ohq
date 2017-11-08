@@ -217,7 +217,7 @@ function connect() {
         } else if (kind == "ta-set") {
             var tas = data.tas.sort().filter(function(el,i,a){return !i||el!=a[i-1];});
             console.log(tas);
-            document.getElementById("misc").innerHTML = tas.length + " TA"+(tas.length == 1 ? '' : 's')+" online: <span class='ta'>" + tas.join("</span>; <span class='ta'>") + "</span>";
+            document.getElementById("misc").innerHTML = tas.length + " TA"+(tas.length == 1 ? '' : 's')+" online: <span class='ta'>" + tas.join("</span> <span class='ta'>") + "</span>";
         } else if (kind == "reauthenticate") {
             window.location.reload(false);
             setText("Unexpected message \""+kind+"\" (please report this to the professor if it stays on the screen)");
