@@ -8,3 +8,8 @@ Missing features
 - UI to display history
 - UI to show TAs who is coming up
 - documentation of any kind
+
+## Student rate TA
+
+- can only rate if TA did not say "not present" and TA did say "done"
+- show free-response comments

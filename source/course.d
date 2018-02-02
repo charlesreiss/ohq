@@ -10,7 +10,7 @@ uint stamp(uint when = 0) {
     return cast(typeof(return))(when ? when : Clock.currTime.toUnixTime);
 }
 
-enum Status { lurk, hand, line, help }
+enum Status { lurk, hand, line, help, report }
 final class Help {
     uint req, hlp, fin;
     string task, loc, notes;
@@ -69,6 +69,12 @@ final class Student {
         status = Status.lurk;
         return h;
     }
+    bool report(string notes, string comments, uint when = 0) {
+        // currently, reports are logged but not stored in memory; if we want them in memory, that would change here (probably)
+        if (status != Status.report) return false;
+        status = Status.lurk;
+        return true;
+    }
 }
 final class TA {
     string id, name;
@@ -99,7 +105,12 @@ final class TA {
         h.notes = notes;
         h.fin = stamp(when);
         status = Status.lurk;
-        h.s.status = Status.lurk;
+        
+        import std.string : indexOf;
+        if (h.notes.indexOf("absent") >= 0)
+            h.s.status = Status.lurk; // skip reporting
+        else
+            h.s.status = Status.report;
         return true;
     }
 }
@@ -185,6 +196,15 @@ final class Course {
                                 resolve(
                                     tas[data["ta"].get!string],
                                     data["notes"].get!string,
+                                    data["when"].get!uint
+                                );
+                                break;
+                            case "report":
+                                report(
+                                    students[data["student"].get!string],
+                                    tas[data["ta"].get!string],
+                                    data["notes"].get!string,
+                                    data["comments"].get!string,
                                     data["when"].get!uint
                                 );
                                 break;
@@ -385,6 +405,25 @@ final class Course {
                 return true;
             } else return false;
         } catch(Exception ex) { import app; app.trace("exception in close: ", ex); return false; }
+    }
+    /// ditto
+    bool report(Student from, TA about, string notes, string comments, uint when = 0) {
+        try {
+            if (from.report(notes, comments, when)) {
+                if (!when) {
+                    appendToFile(logfile, serializeToJsonString([
+                        "action":Json("report"),
+                        "student":Json(from.id),
+                        "ta":Json(about ? about.id : "none"),
+                        "notes":Json(notes),
+                        "comments":Json(comments),
+                        "when":Json(stamp),
+                    ])~'\n');
+                    event.emit;
+                }
+                return true;
+            } else return false;
+        } catch(Exception ex) { import app; app.trace("exception in report: ", ex); return false; }
     }
 }
 

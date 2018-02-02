@@ -18,8 +18,8 @@ Course[string] courses;
 shared string[string] session_key;
 
 void trace(T...)(T args) {
-//    import vibe.core.file;
-//    appendToFile(datadir~"debug.log", text(args, '\n'));
+    import vibe.core.file;
+    appendToFile(datadir~"debug.log", text(args, '\n'));
 }
 
 void trackSessions() {
@@ -41,12 +41,14 @@ size_t fuzzNum(size_t t) {
 }
 
 bool isOpen() {
+    // return false; /+
     import std.datetime;
     auto now = Clock.currTime;
     if  (   now.dayOfWeek == DayOfWeek.fri
         ||  now.dayOfWeek == DayOfWeek.sat
         ) return false;
-    return (now.hour >= 15) && (now.hour < 21);
+    return (now.hour >= 11) && (now.hour <= 17);
+    // +/
 }
 
 
@@ -166,6 +168,9 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
                     case Status.line: // TAs cannot get in line
                         logError("TA "~t.name~" ("~t.id~") has status \"line\"");
                         break;
+                    case Status.report: // TAs cannot report on other TAs
+                        logError("TA "~t.name~" ("~t.id~") has status \"report\"");
+                        break;
                 }
             c.event.wait;
         }
@@ -260,6 +265,7 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
             bool resend = (s.status != status);
             status = s.status;
             final switch(status) {
+                case Status.report: goto case;
                 case Status.lurk: goto case;
                 case Status.help: goto case;
                 case Status.hand:
@@ -298,6 +304,19 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
                             "index":Json(position),
                         ]));
                         break;
+                    case Status.report:
+                        if (s.history.length > 0) {
+                            auto h = s.history[$-1];
+                            if (h.t) {
+                                socket.send(serializeToJsonString([
+                                    "type":Json("report"),
+                                    "when":Json(h.fin),
+                                    "ta":Json(h.t.id),
+                                    "ta-name":Json(h.t.name),
+                                ]));
+                            } else goto case Status.lurk;
+                        } else goto case Status.lurk;
+                        break;
                 }
             c.event.wait;
         }
@@ -332,6 +351,10 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
                 case "retract":
                     if (!c.retract(s))
                         socket.send(`{"type":"error","message":"can only retract pending requests"}`);
+                    break;
+                case "report":
+                    if (!c.report(s, s.history.length ? s.history[$-1].t : null, data["notes"].get!string, data["comments"].get!string))
+                        socket.send(`{"type":"error","message":"can only report pending requests"}`);
                     break;
                 case "history":
                     Json[] helps = new Json[s.history.length]; // allocate space
