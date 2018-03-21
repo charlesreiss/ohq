@@ -1,7 +1,7 @@
 import vibe.data.json;
 import vibe.core.file;
 import vibe.core.log;
-import vibe.core.sync : ManualEvent, createManualEvent;
+import vibe.core.sync : ManualEvent, createSharedManualEvent;
 import std.conv : text;
 
 
@@ -125,14 +125,14 @@ final class Course {
     
     string logfile;
     
-    ManualEvent event;
+    shared ManualEvent event;
     
     this(string logfile) {
         this.logfile = logfile;
         hands.acquire(new Help[0]);
         line = new Queue!Help;
         
-        event = createManualEvent;
+        event = createSharedManualEvent;
 
         if (existsFile(logfile)) {
             logInfo("reading "~logfile);
@@ -208,6 +208,10 @@ final class Course {
                                     data["when"].get!uint
                                 );
                                 break;
+                            case "arrive": // just a record keeping extra
+                                break;
+                            case "depart": // just a record keeping extra
+                                break;
                             default:
                                 logError("Unexpected log entry " ~ data.toString);
                         }
@@ -253,6 +257,11 @@ final class Course {
     
     bool ta_arrive(TA whom) {
         ta_online ~= whom.name;
+        appendToFile(logfile, serializeToJsonString([
+            "action":Json("arrive"),
+            "ta":Json(whom.id),
+            "when":Json(stamp),
+        ])~'\n');
         event.emit;
         return true;
     }
@@ -262,6 +271,11 @@ final class Course {
         if (i == ta_online.length) return false;
         foreach(j; i+1..ta_online.length) ta_online[j-1] = ta_online[j];
         ta_online.length = ta_online.length - 1;
+        appendToFile(logfile, serializeToJsonString([
+            "action":Json("depart"),
+            "ta":Json(whom.id),
+            "when":Json(stamp),
+        ])~'\n');
         event.emit;
         return true;
     }
@@ -317,6 +331,7 @@ final class Course {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("unhelp"),
                         "ta":Json(from.id),
+                        "student":Json(h.s.id), // extraneous but nice for some other reports
                         "when":Json(stamp),
                     ])~'\n');
                     event.emit;
@@ -333,6 +348,7 @@ final class Course {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("resolve"),
                         "ta":Json(from.id),
+                        "student":Json(from.history[$-1].s.id), // extraneous but nice for some other reports
                         "notes":Json(notes),
                         "when":Json(from.history[$-1].fin),
                     ])~'\n');

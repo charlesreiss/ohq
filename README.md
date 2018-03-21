@@ -5,11 +5,7 @@ Missing features
 
 - Edit an open request (as, e.g., to change location)
 - Auto-unrequest on browser log-off (not sure we want this?)
-- UI to display history
+- UI to display student history
 - UI to show TAs who is coming up
 - documentation of any kind
 
-## Student rate TA
-
-- can only rate if TA did not say "not present" and TA did say "done"
-- show free-response comments

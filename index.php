@@ -156,8 +156,8 @@ function connect() {
             <tr><td><input type="checkbox" value="hurried"/></td><td> Rushed</td></tr>\
             <tr><td><input type="checkbox" value="listened"/></td><td> Listened to my questions</td></tr>\
             <tr><td><input type="checkbox" value="condescended"/></td><td> Was condescending</td></tr>\
-            <tr><td><input type="checkbox" value="learning"/></td><td> Focussed on my learning more than on solving my problem</td></tr>\
-            <tr><td><input type="checkbox" value="solving"/></td><td> Focussed on solving my problem more than on my learning</td></tr>\
+            <tr><td><input type="checkbox" value="learning"/></td><td> Focused on my learning more than on solving my problem</td></tr>\
+            <tr><td><input type="checkbox" value="solving"/></td><td> Focused on solving my problem more than on my learning</td></tr>\
             </tbody></table>\
             Other comments:<br/> <textarea rows="5" cols="40" style="width:100%"></textarea><br/>\
             <input type="button" value="Submit feedback" onclick="report()"/>\
@@ -188,6 +188,8 @@ function connect() {
             + '</p>\
             <p>Seat: <b>'+data.where+'</b><img class="float" src="//cs1110.cs.virginia.edu/StacksStickers.png"/></p><p>Problem: '+data.what+'</p>\
             <p>There are '+data.crowd+' other people waiting for help.</p>\
+            <input type="button" value="Finished helping" onclick="showfb()" id="feedbackshower"/>\
+            <div id="feedbacktable" style="display:none">\
             <table style="border-collapse: collapse"><tbody>\
             <tr><td><input type="checkbox" value="absent"/></td><td> Not present</td></tr>\
             <tr><td><input type="checkbox" value="rude"/></td><td> Rude</td></tr>\
@@ -201,7 +203,8 @@ function connect() {
             <tr><td><input type="checkbox" value="other"/></td><td> Other</td></tr>\
             </tbody></table>\
             <input type="button" value="Finished helping" onclick="resolve()"/>\
-            <input type="button" value="Return to queue unhelped" onclick="unhelp()"/>';
+            <input type="button" value="Return to queue unhelped" onclick="unhelp()"/>\
+            </div>';
 //            <input type="button" value="View your help history" onclick="history()"/>';
             document.title = 'Helping ('+data.crowd + ' waiting people)';
         } else if (kind == "ta-history") {
@@ -254,6 +257,12 @@ function connect() {
         setText("error connecting to server");
     }
 }
+
+function showfb() {
+    document.getElementById('feedbackshower').setAttribute('style', 'display:none;');
+    document.getElementById('feedbacktable').setAttribute('style', '');
+}
+
 
 function sendForm() {
     var obj = {};

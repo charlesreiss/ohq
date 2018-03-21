@@ -29,7 +29,7 @@ trace(`-> trackSessions()`);
     while(sessions.readChanges(changes))
         foreach(change; changes) {
             if (change.type == DirectoryChangeType.modified)
-                session_key[change.path.head.toString] = readFileUTF8(change.path);
+                session_key[change.path.head.name] = readFileUTF8(change.path);
         }
 trace(`<- trackSessions()`);
 }
@@ -81,7 +81,7 @@ trace(`<- userSession(socket)`);
     }
     if (course !in courses) {
         string dest = datadir ~ course ~ `.log`;
-        auto clean = Path(dest); clean.normalize;
+        auto clean = NativePath(dest); clean.normalize;
         if (clean.toString == dest && existsFile(clean)) {
             courses[course] = new Course(dest);
             logInfo(text(course, ": ", courses[course].tas.length, " TAs: ", courses[course].tas.keys()));
