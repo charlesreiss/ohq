@@ -1,22 +1,60 @@
 ﻿<!DOCTYPE html>
 <html>
 <head>
-    <title>Office Hours Help</title>
+    <title>COA1 TA Office Hours</title>
     <script type="text/javascript">//<!--
-<?php
+
+
+<?php /** Authentication: uses netbadge for php but internal tokens for websockets */
 $user = $_SERVER['PHP_AUTH_USER'];
 if ($user == "lat7h" && $_GET['user']) $user=$_GET['user'];
-// if (strpos($_GET['user'], 'student_') === 0) $user = $_GET['user']; // beta only!
 
 $token = bin2hex(openssl_random_pseudo_bytes(4)) . " " . date(DATE_ISO8601);
 file_put_contents("/opt/ohq/logs/sessions/$user", "$token");
 ?>
-
 var socket;
 var user = "<?=$user;?>";
 var token = "<?=$token;?>";
 var loaded_at = new Date().getTime();
 
+/** Configuration: class name in OHQ */
+var course = 'coa1';
+/** Configuration: lists of feedback options */
+var student2ta = {
+    "helpful": "Helpful",
+    "unhelpful": "Unhelpful",
+    "polite": "Polite",
+    "rude": "Rude",
+    "unhurried": "Took enough time",
+    "hurried": "Rushed",
+    "listened": "Listened to my questions",
+    "condescended": "Was condescending",
+    "learning": "Focused on my learning more than on solving my problem",
+    "solving": "Focused on solving my problem more than on my learning",
+}
+var ta2student = {
+    "debuging": "Debugging help",
+    "conceptual": "Conceptual help",
+    "design": "Design help",
+    "tech": "Computer/site/systems help",
+    "grub": "Wanted answers, not learning",
+    "check": "Pre-grading; <q>is this OK</q>",
+    "read": "Didn\'t read",
+    "rude": "Rude",
+    "absent": "Not present",
+    "other": "Other",
+}
+<?php /** Discovers the set of assignments to list as tasks */
+$assignments = json_decode(file_get_contents('meta/assignments.json'), true);
+echo "var tasks = {\n";
+foreach($assignments as $k=>$v) {
+    if ($v['group'] == 'PA')
+        echo "    '$v[group]':\"$v[group]\",\n";
+}
+echo "}";
+?>
+
+/** UI material */
 var words = {
     20:"twenty",
     30:"thirty",
@@ -54,13 +92,14 @@ function prettydate(t) {
     return d.toTimeString().substring(0,5) + '\n' + d.toDateString().substring(0, 10);
 }
 
+/** main websocket guts... probably needs refactoring */
 function connect() {
     setText("connecting "+user+"...");
     var content = document.getElementById("content");
     socket = new WebSocket(getBaseURL() + "/ws");
     socket.onopen = function() {
         setText("connected; live updates enabled");
-        socket.send(JSON.stringify({user:user, token:token, course:'cs1110'}));
+        socket.send(JSON.stringify({user:user, token:token, course:course}));
     }
     socket.onmessage = function(message) {
         console.log("message: " + message.data);
@@ -76,37 +115,25 @@ function connect() {
 
 ///////////////////////////// The Student Messages /////////////////////////////
         } else if (kind == 'lurk') {
-            content.innerHTML = '<img class="float" src="//cs1110.cs.virginia.edu/StacksStickers.png"/><p>There are currently '+about(data.crowd)+' other students waiting for help</p>\
-            <input type="hidden" name="req" value="request"/>\
-            <p>Location: <input type="text" name="where" list="seats"/> (should be a seat number in Thorton Stacks; see label at your table or map to right)</p>\
-            <p>Task: <select name="what">\
-                <option value="">(select one)</option>\
-                <option value="conceptual">non-homework help</option>\
-                <option value="pa01">01 - greeting.py</option>\
-                <option value="pa02">02 - nonsense.py</option>\
-                <option value="pa03">03 - dating.py</option>\
-                <option value="pa04">04 - c2f.py</option>\
-                <option value="pa05">05 - maydate.py</option>\
-                <option value="pa06">06 - conversion.py</option>\
-                <option value="pa07">07 - gpa.py</option>\
-                <option value="pa08">08 - bmr.py</option>\
-                <option value="pa09">09 - averages.py</option>\
-                <option value="pa10">10 - calculator.py</option>\
-                <option value="pa11">11 - higher_lower.py</option>\
-                <option value="pa12">12 - higher_lower_player.py</option>\
-                <option value="pa13">13 - str_redux.py</option>\
-                <option value="pa14">14 - map_reduce.py</option>\
-                <option value="pa15">15 - credit_card.py</option>\
-                <option value="pa16">16 - gradebook.py</option>\
-                <option value="pa17">17 - lous_list.py</option>\
-                <option value="pa18">18 - spellcheck.py</option>\
-                <option value="pa19">19 - flappybird.py</option>\
-                <option value="pa20">20 - regexs.py</option>\
-                <option value="pa21">21 - salary.py</option>\
-                <option value="project">Game Project</option>\
-            </select></p>\
-            <input type="button" value="Request Help" onclick="sendForm()"/>';
-//            <input type="button" value="View your help history" onclick="history()"/>';
+            var html = [
+                '<img class="float" src="//archimedes.cs.virginia.edu/StacksStickers.png"/>',
+                '<p>There are currently ', about(data.crowd), ' other students waiting for help</p>',
+                '<input type="hidden" name="req" value="request"/>',
+                '<p>Location: <input type="text" name="where" list="seats"/>',
+                ' (should be a seat number in Thorton Stacks; see label at your table or map to right)</p>',
+                '<p>Task: <select name="what">',
+                '<option value="">(select one)</option>',
+                '<option value="conceptual">non-homework help</option>',
+            ];
+            for(var k in tasks) {
+                html.push('<option value="',k,'">',k,' - ', tasks[k],'</option>')
+            }
+            html.push(
+                '</select></p>',
+                '<input type="button" value="Request Help" onclick="sendForm()"/>',
+//                 '<input type="button" value="View your help history" onclick="history()"/>',
+            );
+            content.innerHTML = html.join('');
         } else if (kind == "line") {
             content.innerHTML = '<p>You are currently number '+(data.index+1)+' in line for getting help</p>\
             <input type="hidden" name="req" value="retract"/>\
@@ -145,23 +172,21 @@ function connect() {
             content.appendChild(tab);
             //console.log(tab);
         } else if (kind == "report") {
-            content.innerHTML = '<p>Please provide feedback on your recent help from '+data['ta-name']+':'
-            + '</p>\
-            <table style="border-collapse: collapse"><tbody>\
-            <tr><td><input type="checkbox" value="helpful"/></td><td> Helpful</td></tr>\
-            <tr><td><input type="checkbox" value="unhelpful"/></td><td> Unhelpful</td></tr>\
-            <tr><td><input type="checkbox" value="polite"/></td><td> Polite</td></tr>\
-            <tr><td><input type="checkbox" value="rude"/></td><td> Rude</td></tr>\
-            <tr><td><input type="checkbox" value="unhurried"/></td><td> Took enough time</td></tr>\
-            <tr><td><input type="checkbox" value="hurried"/></td><td> Rushed</td></tr>\
-            <tr><td><input type="checkbox" value="listened"/></td><td> Listened to my questions</td></tr>\
-            <tr><td><input type="checkbox" value="condescended"/></td><td> Was condescending</td></tr>\
-            <tr><td><input type="checkbox" value="learning"/></td><td> Focused on my learning more than on solving my problem</td></tr>\
-            <tr><td><input type="checkbox" value="solving"/></td><td> Focused on solving my problem more than on my learning</td></tr>\
-            </tbody></table>\
-            Other comments:<br/> <textarea rows="5" cols="40" style="width:100%"></textarea><br/>\
-            <input type="button" value="Submit feedback" onclick="report()"/>\
-            ';
+
+            var html = [
+                '<p>Please provide feedback on your recent help from ', data['ta-name'], ':</p>',
+                '<table style="border-collapse: collapse"><tbody>',
+            ];
+            for(var k in student2ta) {
+                html.push('<tr><td><input type="checkbox" value="',k,'"></td><td> ',student2ta[k],'</td></tr>')
+            }
+            html.push(
+                '</tbody></table>',
+                'Other comments:<br/> <textarea rows="5" cols="40" style="width:100%"></textarea><br/>',
+                '<input type="button" value="Submit feedback" onclick="report()"/>',
+            );
+            content.innerHTML = html.join('');
+
             
             
 /////////////////////////////// The TA Messages ///////////////////////////////
@@ -183,29 +208,30 @@ function connect() {
             if (data.crowd == 0) document.body.style.backgroundColor = '#dad0dd';
             else document.body.style.backgroundColor = '#ffff00';
             
-            content.innerHTML = '<p>You are helping '+data.name+' ('+data.id+') '
-            + '<img class="float" src="picture.php?user='+data.id+'"/>'
-            + '</p>\
-            <p>Seat: <b>'+data.where+'</b><img class="float" src="//cs1110.cs.virginia.edu/StacksStickers.png"/></p><p>Problem: '+data.what+'</p>\
-            <p>There are '+data.crowd+' other people waiting for help.</p>\
-            <input type="button" value="Finished helping" onclick="showfb()" id="feedbackshower"/>\
-            <div id="feedbacktable" style="display:none">\
-            <table style="border-collapse: collapse"><tbody>\
-            <tr><td><input type="checkbox" value="absent"/></td><td> Not present</td></tr>\
-            <tr><td><input type="checkbox" value="rude"/></td><td> Rude</td></tr>\
-            <tr><td><input type="checkbox" value="debuging"/></td><td> Debugging help</td></tr>\
-            <tr><td><input type="checkbox" value="conceptual"/></td><td> Conceptual help</td></tr>\
-            <tr><td><input type="checkbox" value="design"/></td><td> Design help</td></tr>\
-            <tr><td><input type="checkbox" value="grub"/></td><td> Wanted answers, not learning</td></tr>\
-            <tr><td><input type="checkbox" value="check"/></td><td> Pre-grading; <q>is this OK</q></td></tr>\
-            <tr><td><input type="checkbox" value="tech"/></td><td> Computer/site/systems help</td></tr>\
-            <tr><td><input type="checkbox" value="read"/></td><td> Didn\'t read</td></tr>\
-            <tr><td><input type="checkbox" value="other"/></td><td> Other</td></tr>\
-            </tbody></table>\
-            <input type="button" value="Finished helping" onclick="resolve()"/>\
-            <input type="button" value="Return to queue unhelped" onclick="unhelp()"/>\
-            </div>';
-//            <input type="button" value="View your help history" onclick="history()"/>';
+            var html = [
+                '<img class="float" src="//archimedes.cs.virginia.edu/StacksStickers.png"/>',
+                '<p>You are helping ', data.name, ' (', data.id, ') ',
+                '<img class="float" src="picture.php?user=', data.id, '"/>', '</p>',
+                '<p>Seat: <b>', data.where, '</b></p>',
+                '<p>Task: ', data.what, '</p>',
+                '<p>There are ', data.crowd, ' other people waiting for help.</p>',
+                '<input type="button" value="Finished helping" onclick="showfb()" id="feedbackshower"/>',
+                '<div id="feedbacktable" style="display:none">',
+                '<table style="border-collapse: collapse"><tbody>',
+            ];
+            for(var k in ta2student) {
+                html.push('<tr><td><input type="checkbox" value="',k,'"></td><td> ',ta2student[k],'</td></tr>')
+            }
+            html.push(
+                '</tbody></table>',
+                '<input type="button" value="Finished helping" onclick="resolve()"/>',
+                '<input type="button" value="Return to queue unhelped" onclick="unhelp()"/>',
+                '</div>',
+//                '<input type="button" value="View your help history" onclick="history()"/>',
+            );
+            content.innerHTML = html.join('');
+
+            
             document.title = 'Helping ('+data.crowd + ' waiting people)';
         } else if (kind == "ta-history") {
             var tab = document.createElement('table');
@@ -368,7 +394,7 @@ function getBaseURL() {
 </head>
 <body onLoad="connect()">
     <div id="wrapper">
-        <p>TA office hours are held in Thorton Stacks, see <a href='https://cs1110.cs.virginia.edu/oh.html'>the course website</a> for office hour times.</p>
+        <p>TA office hours are held in Thorton Stacks.</p>
         <div id="content"></div>
         <div id="misc"></div>
         <pre id="timer">(client-server status log)</pre>
