@@ -395,11 +395,16 @@ trace(`<- studentSession(`,c.logfile,`, `, s.id, `)`);
 
 
 void uploadRoster(scope HTTPServerRequest req, scope HTTPServerResponse res) {
-    Json auth = req.json;
+logInfo("%s", req);
+    res.headers["Access-Control-Allow-Origin"] = "https://archimedes.cs.virginia.edu";
     
-    string user = auth["user"].get!string,
-        token = auth["token"].get!string,
-        course = auth["course"].get!string;
+    auto auth = req.form;
+logInfo("%s", auth);
+logInfo("%s", req.files);
+    
+    string user = auth["user"],
+        token = auth["token"],
+        course = auth["course"];
 
     if (user !in session_key || session_key[user] != token) {
         res.writeBody(serializeToJsonString(
@@ -408,7 +413,7 @@ void uploadRoster(scope HTTPServerRequest req, scope HTTPServerResponse res) {
             ]));
         return;
     }
-    
+logInfo("valid token");
     Json allowed = parseJsonString(readFileUTF8(datadir~`superusers.json`));
     
     if (user !in allowed) {
@@ -418,6 +423,7 @@ void uploadRoster(scope HTTPServerRequest req, scope HTTPServerResponse res) {
             ]));
         return;
     }
+logInfo("permitted user");
         
     import std.algorithm.searching : canFind;
     if (allowed[user].get!string.canFind(course) || allowed[user].get!string.canFind(`any`)) {
@@ -444,7 +450,7 @@ void uploadRoster(scope HTTPServerRequest req, scope HTTPServerResponse res) {
         try {
             auto ot = c.tas.keys();
             auto os = c.students.keys();
-            c.uploadRoster(auth["filename"].get!string);
+            c.uploadRoster(req.files["file"].tempPath);
             auto nt = c.tas.keys();
             auto ns = c.students.keys();
             
@@ -467,6 +473,8 @@ void uploadRoster(scope HTTPServerRequest req, scope HTTPServerResponse res) {
             ,"message":course~" is not yours; please see Luther Tychonievich if this is incorrect"
         ]));
     }
+    
+    res.writeBody(`OK`);
 }
 
 
@@ -474,7 +482,7 @@ shared static this() {
     auto settings = new HTTPServerSettings;
     settings.port = 1111;
     settings.hostName = "archimedes.cs.virginia.edu";
-    settings.bindAddresses = ["::1", "127.0.0.1", "128.143.63.34"];
+    settings.bindAddresses = [/+"::1", "127.0.0.1",+/"128.143.63.34"];
     settings.tlsContext = createTLSContext(TLSContextKind.server);
     settings.tlsContext.useCertificateChainFile("server.cer");
     settings.tlsContext.usePrivateKeyFile("server-pk8.key");
@@ -487,7 +495,7 @@ shared static this() {
 
     auto router = new URLRouter;
     router.get("/ws", handleWebSockets(&userSession));
-    router.post("/roster/:course", &uploadRoster);
+    router.post("*", &uploadRoster);
 
     runTask(toDelegate(&trackSessions));
     import core.time : minutes;

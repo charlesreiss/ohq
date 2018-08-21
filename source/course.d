@@ -259,9 +259,9 @@ final class Course {
         ])~'\n');
     }
     
-    void uploadRoster(string rosterFileName) {
+    void uploadRoster(Path)(Path rosterFileName) {
         import collab_roster;
-        scope participants = readCollabRoster(rosterFileName);
+        scope participants = readCollabRoster(rosterFileName.toString);
         foreach(k,v; participants)
             if (v[`role`] == `Student` || v[`role`] == `Waitlisted Student`)
                 addStudent(k, v[`name`], true);
