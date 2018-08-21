@@ -394,6 +394,80 @@ trace(`<- studentSession(`,c.logfile,`, `, s.id, `)`);
 }
 
 
+void uploadRoster(scope HTTPServerRequest req, scope HTTPServerResponse res) {
+    Json auth = req.json;
+    
+    string user = auth["user"].get!string,
+        token = auth["token"].get!string,
+        course = auth["course"].get!string;
+
+    if (user !in session_key || session_key[user] != token) {
+        res.writeBody(serializeToJsonString(
+            ["type":"reauthenticate"
+            ,"message":(user in session_key ? session_key[user][9..$] : "")
+            ]));
+        return;
+    }
+    
+    Json allowed = parseJsonString(readFileUTF8(datadir~`superusers.json`));
+    
+    if (user !in allowed) {
+        res.writeBody(serializeToJsonString(
+            ["type":"error"
+            ,"message":"forbidden; please see Luther Tychonievich for permissions"
+            ]));
+        return;
+    }
+        
+    import std.algorithm.searching : canFind;
+    if (allowed[user].get!string.canFind(course) || allowed[user].get!string.canFind(`any`)) {
+        if (course !in courses) {
+            string dest = datadir ~ course ~ `.log`;
+            auto clean = NativePath(dest); clean.normalize;
+            if (clean.toString != dest) {
+                res.writeBody(serializeToJsonString(
+                    ["type":"error"
+                    ,"message":"illegal course name"
+                    ]));
+                return;
+            }
+            if (!existsFile(clean)) {
+                writeFileUTF8(clean, serializeToJsonString([
+                    `action`:`ta`,
+                    `id`:user,
+                ])~"\n");
+                logInfo(text(user, ` created course `, course));
+            }
+            courses[course] = new Course(dest);
+        }
+        Course c = courses[course];
+        try {
+            auto ot = c.tas.keys();
+            auto os = c.students.keys();
+            c.uploadRoster(auth["filename"].get!string);
+            auto nt = c.tas.keys();
+            auto ns = c.students.keys();
+            
+            res.writeBody(serializeToJsonString(
+                ["type":"success"
+                ,"message":text("roster uploaded successfully; added ", 
+                    nt.length-ot.length, " staff (",nt.length," total) and ",
+                    ns.length-os.length, " students (",ns.length," total)")
+                ]));
+        } catch (Exception ex) {
+            res.writeBody(serializeToJsonString(
+                ["type":"error"
+                ,"message":"failed to parse roster file (send file to Luther Tychonievich for workaround)"
+                ]));
+        }
+        
+    } else {
+        res.writeBody(serializeToJsonString(
+            ["type":"error"
+            ,"message":course~" is not yours; please see Luther Tychonievich if this is incorrect"
+        ]));
+    }
+}
 
 
 shared static this() {
@@ -413,6 +487,7 @@ shared static this() {
 
     auto router = new URLRouter;
     router.get("/ws", handleWebSockets(&userSession));
+    router.post("/roster/:course", &uploadRoster);
 
     runTask(toDelegate(&trackSessions));
     import core.time : minutes;

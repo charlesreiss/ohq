@@ -235,6 +235,8 @@ final class Course {
     }
     
     void addTA(string id, string name, bool log=true) {
+        log &= (id !in tas || (name && name != tas[id].name));
+        if (id in students) students.remove(id);
         if (id !in tas) tas[id] = new TA;
         tas[id].id = id;
         if (name) tas[id].name = name;
@@ -245,6 +247,8 @@ final class Course {
         ])~'\n');
     }
     void addStudent(string id, string name, bool log=true) {
+        log &= (id !in students || (name && name != students[id].name));
+        if (id in tas) tas.remove(id);
         if (id !in students) students[id] = new Student;
         students[id].id = id;
         if (name) students[id].name = name;
@@ -254,6 +258,17 @@ final class Course {
             "name":name,
         ])~'\n');
     }
+    
+    void uploadRoster(string rosterFileName) {
+        import collab_roster;
+        scope participants = readCollabRoster(rosterFileName);
+        foreach(k,v; participants)
+            if (v[`role`] == `Student` || v[`role`] == `Waitlisted Student`)
+                addStudent(k, v[`name`], true);
+            else
+                addTA(k, v[`name`], true);
+    }
+    
     
     bool ta_arrive(TA whom) {
         ta_online ~= whom.name;
