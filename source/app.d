@@ -41,7 +41,9 @@ size_t fuzzNum(size_t t) {
 }
 
 bool isOpen() {
-    return false; /+
+    return true;
+    // return false;
+    /+
     import std.datetime;
     auto now = Clock.currTime;
     if  (   now.dayOfWeek == DayOfWeek.fri
