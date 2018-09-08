@@ -116,6 +116,7 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
     Status status = Status.lurk;
     size_t position = size_t.max;
     size_t tacount = size_t.max;
+    uint last_broadcast = 0;
     
     auto writer = runTask({
         while(socket.connected) {
@@ -126,30 +127,33 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
             if (tmp != position) { position = tmp; resend = true; }
             
             if (c.ta_online.length != tacount) {
-                version(none) { // Json(string[]) fails
-                    socket.send(serializeToJsonString([
-                            "type":Json("ta-set"),
-                            "crowd":Json(c.ta_online),
-                        ]));
-                } else {
-                    auto msg = `{"type":"ta-set","tas":[`;
-                    bool comma = false;
-                    foreach(tan; c.ta_online) {
-                        if (comma) msg ~= `,`;
-                        msg ~= `"` ~ tan ~ `"`;
-                        comma = true;
-                    }
-                    socket.send(msg ~ `]}`);
+                auto msg = `{"type":"ta-set","tas":[`;
+                bool comma = false;
+                foreach(tan; c.ta_online) {
+                    if (comma) msg ~= `,`;
+                    msg ~= `"` ~ tan ~ `"`;
+                    comma = true;
                 }
+                socket.send(msg ~ `]}`);
                 tacount = c.ta_online.length;
             }
-            
+            Json[] alerts;
+            foreach(i; 0..c.broadcasts.length) {
+                if (c.broadcasts[i].posted > last_broadcast) {
+                    alerts ~= c.broadcasts[i].msg;
+                    if (i == c.broadcasts.length-1) last_broadcast = c.broadcasts[i].posted;
+                    resend = true;
+                }
+            }
+
             if (resend)
                 final switch(status) {
                     case Status.lurk:
                         socket.send(serializeToJsonString([
                             "type":Json("watch"),
                             "crowd":Json(position),
+                            "qset":c.tasks_json,
+                            "broadcasts":Json(alerts),
                             // should we send the line too?
                         ]));
                         break;
@@ -162,6 +166,8 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
                             "what":Json(h.task),
                             "where":Json(h.loc),
                             "crowd":Json(position),
+                            "qset":c.tasks_json,
+                            "broadcasts":Json(alerts),
                         ]));
                         break;
                     case Status.hand: // TAs cannot raise their hand
@@ -218,6 +224,10 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
                         ,"events":Json(helps)
                         ]));
                     break;
+                case "broadcast":
+                    if (!c.addBroadcast(t.id, data["message"].get!string, data["seconds"].get!uint))
+                        socket.send(`{"type":"error","message":"cannot broadcast such a brief message"}`);
+                    break;
                 default:
                     socket.send(serializeToJsonString(
                         ["type":"error"
@@ -229,6 +239,7 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
                 ["type":"error"
                 ,"message":"exception parsing "~message
                 ]));
+            logInfo("\n\n%s\n\n", ex);
         }
     }
 
@@ -252,6 +263,7 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
 
     Status status = Status.lurk;
     size_t position = size_t.max;
+    uint last_broadcast = 0;
     
     auto writer = runTask({
         while(socket.connected) {
@@ -279,12 +291,23 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
                     if (tmp != position) { position = tmp; resend = true; }
                     break;
             }
+
+            Json[] alerts;
+            foreach(i; 0..c.broadcasts.length) {
+                if (c.broadcasts[i].posted > last_broadcast) {
+                    alerts ~= c.broadcasts[i].msg;
+                    if (i == c.broadcasts.length-1) last_broadcast = c.broadcasts[i].posted;
+                    resend = true;
+                }
+            }
+
             if (resend)
                 final switch(status) {
                     case Status.lurk:
                         socket.send(serializeToJsonString([
                             "type":Json("lurk"),
                             "crowd":Json(position),
+                            "broadcasts":Json(alerts),
                         ]));
                         break;
                     case Status.help:
@@ -292,18 +315,21 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
                             "type":Json("help"),
                             "by":Json(s.history[$-1].t.name),
                             "crowd":Json(position),
+                            "broadcasts":Json(alerts),
                         ]));
                         break;
                     case Status.hand:
                         socket.send(serializeToJsonString([
                             "type":Json("hand"),
                             "crowd":Json(position),
+                            "broadcasts":Json(alerts),
                         ]));
                         break;
                     case Status.line:
                         socket.send(serializeToJsonString([
                             "type":Json("line"),
                             "index":Json(position),
+                            "broadcasts":Json(alerts),
                         ]));
                         break;
                     case Status.report:
@@ -315,6 +341,7 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
                                     "when":Json(h.fin),
                                     "ta":Json(h.t.id),
                                     "ta-name":Json(h.t.name),
+                                    "broadcasts":Json(alerts),
                                 ]));
                             } else goto case Status.lurk;
                         } else goto case Status.lurk;

@@ -106,8 +106,11 @@ function connect() {
         var data = JSON.parse(message.data);
         var kind = data["type"];
         delete data["."];
+        if (data.broadcasts) {
+            for(var i=0; i<data.broadcasts.length; i+=1) showBroadcast(data.broadcasts[i]);
+            delete data['broadcasts'];
+        }
         if (kind == 'error') {
-            console.log(data.message);
             setText('ERROR: ' + data.message);
             if (data.message.indexOf('currently closed') >= 0) {
                 alert("Office hours are currently closed.");
@@ -191,16 +194,27 @@ function connect() {
             
 /////////////////////////////// The TA Messages ///////////////////////////////
         } else if (kind == "watch") {
+            var can_post = '<p>Announcement text:</br><textarea id="to-send"></textarea><br/>Show for <input type="text" id="show-minutes" value="5" size="4"/> minutes <input type="button" value="post announcement" onclick="broadcastAnnouncement()"/></p>';
             if (data.crowd == 0) {
                 content.innerHTML = '<p>No one is waiting for help.</p>\
-                <input type="button" value="View your help history" onclick="history()"/>';
+                <input type="button" value="View your help history" onclick="history()"/>'+can_post;
                 document.title = 'Empty OHs';
                 document.body.style.backgroundColor = '#dad0dd';
             } else {
-                content.innerHTML = '<p>There are '+data.crowd+' people waiting for help.</p>\
+                var sortable = [];
+                for(var k in data.qset) sortable.push([data.qset[k], k]);
+                sortable.sort();
+                var task_text;
+                if (sortable.length == 1) task_text = 'All are asking about ' + sortable[0][1];
+                else {
+                    task_text = 'They are asking about ';
+                    for(var i=sortable.length-1; i >=0; i-=1)
+                        task_text += sortable[i][1] + ' (' + (sortable[i][0])+(i ? '), ' : ')');
+                }
+                content.innerHTML = '<p>There are '+data.crowd+' people waiting for help. '+task_text+'.</p>\
                 <input type="hidden" name="req" value="help"/>\
                 <input type="button" value="Help one of them" onclick="sendForm()"/>\
-                <input type="button" value="View your help history" onclick="history()"/>';
+                <input type="button" value="View your help history" onclick="history()"/>'+can_post;
                 document.title = data.crowd+ ' waiting people';
                 document.body.style.backgroundColor = '#ffff00';
             }
@@ -264,11 +278,15 @@ function connect() {
             // console.log(tab);
         } else if (kind == "ta-set") {
             var tas = data.tas.sort().filter(function(el,i,a){return !i||el!=a[i-1];});
-            console.log(tas);
             document.getElementById("misc").innerHTML = tas.length + " TA"+(tas.length == 1 ? '' : 's')+" online: <span class='ta'>" + tas.join("</span> <span class='ta'>") + "</span>";
         } else if (kind == "reauthenticate") {
-            window.location.reload(false);
-            setText("Unexpected message \""+kind+"\" (please report this to the professor if it stays on the screen)");
+            var now = new Date().getTime();
+            if (loaded_at +10*1000 < now) {// at least 10 seconds to avoid refresh frenzy
+                window.location.reload(false);
+                setText("Unexpected message \""+kind+"\" (please report this to the professor if it stays on the screen)");
+            } else {
+                setText("connection closed; reload page to make a new connection.");
+            }
         } else {
             setText("Unexpected message \""+kind+"\" (please report this to the professor)");
         }
@@ -361,10 +379,49 @@ function setText(text) {
     document.getElementById("timer").innerHTML += "\n"+text;
 }
 
+function showBroadcast(broadcast) {
+    console.log('broadcast', broadcast);
+    var now = new Date().getTime()/1000;
+    console.log('time left', broadcast.expires - now);
+    
+    if (broadcast.expires > now) {
+        var sent = new Date(broadcast.posted*1000);
+        sent = sent.toLocaleString();
+        var msg = document.createElement('div');
+        msg.setAttribute('class','alert');
+        msg.setAttribute('expires', broadcast.expires);
+        msg.innerHTML = 
+            '<span class="sent-time">'+sent+'</span>' +
+            '<span class="announcer">'+broadcast.from+'</span>' +
+            '<span class="announcement">'+broadcast.message+'</span>';
+        document.getElementById('broadcasts').appendChild(msg);
+        setTimeout(expireBroadcasts, 1000*(broadcast.expires-now+1));
+    }
+}
+
+function expireBroadcasts() {
+    var now = new Date().getTime()/1000;
+    document.querySelectorAll('.alert').forEach(function(node){
+        if (node.getAttribute('expires') < now) node.remove();
+    });
+}
+
+function broadcastAnnouncement() {
+    var text = document.getElementById('to-send').value.trim();
+    if (text.length < 1) return;
+    var duration = document.getElementById('show-minutes').value * 60;
+    if (!(duration > 30)) { document.getElementById('show-minutes').value = 1; return; }
+    if (window.confirm('Post the following announcement for '+document.getElementById('show-minutes').value+' minutes? This cannot be edited after posting...\n\n'+text)) {
+        socket.send(JSON.stringify({'req':'broadcast','message':text,'seconds':duration}));
+    }
+}
+
 function getBaseURL() {
     var wsurl = "wss://" + window.location.hostname+':1111' // not ':'+window.location.port
     return wsurl;
 }
+
+
     //--></script>
     <style>
         #wrapper { 
@@ -390,11 +447,21 @@ function getBaseURL() {
         table { border-collapse: collapse; }
         #misc { margin-top:0.5em; }
         #misc .ta { padding: 0.5ex; margin:0.5ex; border-radius:1ex; background: #dad0dd; }
+        
+        .alert { padding: 1ex; margin: 1ex; border-radius: 1.5ex; background: black; color: white; }
+        .alert .announcer:after { content: " announced "; }
+        .alert .sent-time:after { content: " "; }
+        .alert .announcer { opacity: 0.5; font-size: 70.7%; }
+        .alert .sent-time { opacity: 0.5; font-size: 70.7%; }
+        .alert .announcement { display: table; margin: auto; }
+        
+        #to-send { width: 100%; }
     </style>
 </head>
 <body onLoad="connect()">
     <div id="wrapper">
         <p>TA office hours are held in Thorton Stacks.</p>
+        <div id="broadcasts"></div>
         <div id="content"></div>
         <div id="misc"></div>
         <pre id="timer">(client-server status log)</pre>

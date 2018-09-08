@@ -114,6 +114,26 @@ final class TA {
         return true;
     }
 }
+final class Broadcast {
+    string from, text;
+    uint posted;
+    uint showUntil;
+    this(string id, string text, uint duration, uint posted) {
+        this.from = id;
+        this.text = text;
+        this.posted = posted;
+        this.showUntil = posted + duration;
+    }
+    Json msg() const {
+        return Json([
+            "from":Json(from),
+            "message":Json(text),
+            "posted":Json(posted),
+            "expires":Json(showUntil),
+        ]);
+    }
+}
+
 final class Course {
     TA[string] tas;
     Student[string] students;
@@ -122,6 +142,8 @@ final class Course {
     BinaryHeap!(Help[], "a.priority > b.priority") hands;
     Queue!Help line;
     string[] ta_online;
+    Broadcast[] broadcasts;
+    int[string] task_count;
     
     string logfile;
     
@@ -212,6 +234,15 @@ final class Course {
                                 break;
                             case "depart": // just a record keeping extra
                                 break;
+                            case "broadcast": 
+                                addBroadcast(
+                                    data["from"].get!string,
+                                    data["text"].get!string,
+                                    data["duration"].get!uint,
+                                    data["posted"].get!uint,
+                                    false
+                                );
+                                break;
                             default:
                                 logError("Unexpected log entry " ~ data.toString);
                         }
@@ -232,6 +263,12 @@ final class Course {
             line.add(hands.front);
             hands.popFront;
         }
+    }
+    
+    Json tasks_json() {
+        Json[string] ans;
+        foreach(k,v; task_count) if (v > 0) ans[k] = Json(v);
+        return Json(ans);
     }
     
     void addTA(string id, string name, bool log=true) {
@@ -258,6 +295,38 @@ final class Course {
             "name":name,
         ])~'\n');
     }
+    bool addBroadcast(string id, string text, uint duration, uint posted=0, bool log=true) {
+        if (duration == 0) return false;
+        if (id !in tas) return false;
+        if (posted == 0) posted = stamp;
+        if (uint.max - duration <= posted) return false;
+        if (log) {
+            appendToFile(logfile, serializeToJsonString([
+                "action":Json("broadcast"),
+                "from":Json(id),
+                "text":Json(text),
+                "posted":Json(posted),
+                "duration":Json(duration),
+            ])~'\n');
+        }
+        auto now = stamp;
+        if (posted + duration <= now+30) return false;
+        size_t i = 0, j = 0;
+        while(j < broadcasts.length) {
+            if (broadcasts[j].showUntil <= now) {
+                j+=1;
+            } else {
+                broadcasts[i] = broadcasts[j];
+                i+=1;
+                j+=1;
+            }
+        }
+        broadcasts.length = i+1;
+        broadcasts[i] = new Broadcast(tas[id].name, text, duration, posted);
+        event.emit;
+        return true;
+    }
+    
     
     void uploadRoster(Path)(Path rosterFileName) {
         import collab_roster;
@@ -302,6 +371,7 @@ final class Course {
             if (from.help(h, when)) {
                 line.remove(h);
                 fillLine();
+                task_count[h.task] -= 1;
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("help"),
@@ -338,9 +408,11 @@ final class Course {
                 version(all) { // return to front of line
                     line.addInFront(h);
                     h.s.status = Status.line;
+                    task_count[h.task] += 1;
                 } else { // return to crowd
                     hands.insert(h);
                     fillLine();
+                    task_count[h.task] += 1;
                 }
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
@@ -380,6 +452,7 @@ final class Course {
             Help h = from.request(where, what, when);
             if (h !is null) {
                 hands.insert(h);
+                task_count[h.task] += 1;
                 fillLine();
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
@@ -403,6 +476,7 @@ final class Course {
             if (h !is null) {
                 if (hand) hands.remove(h);
                 else line.remove(h);
+                task_count[h.task] -= 1;
                 fillLine();
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
@@ -424,6 +498,7 @@ final class Course {
             if (h !is null) {
                 if (hand) hands.remove(h);
                 else line.remove(h);
+                task_count[h.task] -= 1;
                 fillLine();
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
