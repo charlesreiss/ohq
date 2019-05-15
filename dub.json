@@ -14,7 +14,7 @@
 		"dyaml": "~>0.6.3"
 	},
 	"subConfigurations": {
-		"vibe-d:tls":"openssl"
+		"vibe-d:tls":"openssl-1.1"
 	},
 	"versions": [
 		"VibeDefaultMain"

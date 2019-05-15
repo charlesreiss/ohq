@@ -425,7 +425,7 @@ trace(`<- studentSession(`,c.logfile,`, `, s.id, `)`);
 
 void uploadRoster(scope HTTPServerRequest req, scope HTTPServerResponse res) {
 logInfo("%s", req);
-    res.headers["Access-Control-Allow-Origin"] = "https://archimedes.cs.virginia.edu";
+    res.headers["Access-Control-Allow-Origin"] = "https://kytos.cs.virginia.edu";
     
     auto auth = req.form;
 logInfo("%s", auth);
@@ -455,6 +455,7 @@ logInfo("valid token");
 logInfo("permitted user");
         
     import std.algorithm.searching : canFind;
+    import std.array : join;
     if (allowed[user].get!string.canFind(course) || allowed[user].get!string.canFind(`any`)) {
         if (course !in courses) {
             string dest = datadir ~ course ~ `.log`;
@@ -481,6 +482,7 @@ logInfo("permitted user");
             auto os = c.students.keys();
             c.uploadRoster(req.files["file"].tempPath);
             auto nt = c.tas.keys();
+            writeFile(NativePath("/var/www/html/ohq/.htcourses/"~course~"-staff.csv"), cast(immutable(ubyte)[])join(nt,"\n"));
             auto ns = c.students.keys();
             
             res.writeBody(serializeToJsonString(
@@ -510,8 +512,8 @@ logInfo("permitted user");
 shared static this() {
     auto settings = new HTTPServerSettings;
     settings.port = 1111;
-    settings.hostName = "archimedes.cs.virginia.edu";
-    settings.bindAddresses = [/+"::1", "127.0.0.1",+/"128.143.63.34"];
+    settings.hostName = "kytos.cs.virginia.edu";
+    settings.bindAddresses = [/+"::1", "127.0.0.1",+/"128.143.67.106"];
     settings.tlsContext = createTLSContext(TLSContextKind.server);
     settings.tlsContext.useCertificateChainFile("server.cer");
     settings.tlsContext.usePrivateKeyFile("server-pk8.key");
