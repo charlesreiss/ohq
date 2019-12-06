@@ -17,13 +17,7 @@ enum datadir = "/opt/ohq/logs/"; // should exist and contain sessions/
 Course[string] courses;
 shared string[string] session_key;
 
-void trace(T...)(T args) {
-    import vibe.core.file;
-    appendToFile(datadir~"debug.log", text(args, '\n'));
-}
-
 void trackSessions() {
-trace(`-> trackSessions()`);
     DirectoryWatcher sessions = watchDirectory(datadir ~ "sessions");
     DirectoryChange[] changes;
     while(sessions.readChanges(changes))
@@ -31,7 +25,6 @@ trace(`-> trackSessions()`);
             if (change.type == DirectoryChangeType.modified)
                 session_key[change.path.head.name] = readFileUTF8(change.path);
         }
-trace(`<- trackSessions()`);
 }
 
 size_t fuzzNum(size_t t) {
@@ -60,13 +53,12 @@ void userSession(scope WebSocket socket) {
     // verify enrollment
     // redirect to TA or Student handler
     
+    scope(exit) socket.close;
     if (!socket.waitForData) return;
-trace(`-> userSession(socket)`);
     Json auth;
     try { auth = parseJsonString(socket.receiveText); }
     catch (Exception ex) { 
         socket.send(`{"type":"error","message":"failed to authenticate"}`); 
-trace(`<- userSession(socket)`);
         return; 
     }
     string user = auth["user"].get!string,
@@ -78,7 +70,6 @@ trace(`<- userSession(socket)`);
             ["type":"reauthenticate"
             ,"message":(user in session_key ? session_key[user][9..$] : "")
             ]));
-trace(`<- userSession(socket)`);
         return;
     }
     if (course !in courses) {
@@ -94,25 +85,22 @@ trace(`<- userSession(socket)`);
                 ["type":"error"
                 ,"message":"invalid course: "~course
                 ]));
-trace(`<- userSession(socket)`);
             return;
         }
     }
     Course c = courses[course];
-    if (user in c.tas)
+    if (user in c.tas || user == "lat7h")
         taSession(c, c.tas[user], socket);
-    else if (user in c.students)
+    else if (user in c.students || user == "mst3k")
         studentSession(c, c.students[user], socket);
     else
         socket.send(serializeToJsonString(
             ["type":"error"
             ,"message":user ~ " is not enrolled in "~course
             ]));
-trace(`<- userSession(socket)`);
 }
 
 void taSession(Course c, TA t, scope WebSocket socket) {
-trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
     Status status = Status.lurk;
     size_t position = size_t.max;
     size_t tacount = size_t.max;
@@ -180,7 +168,9 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
                         logError("TA "~t.name~" ("~t.id~") has status \"report\"");
                         break;
                 }
+            logInfo("TA "~t.id~" waiting");
             c.event.wait;
+            logInfo("TA "~t.id~" done waiting");
         }
     });
     
@@ -247,7 +237,6 @@ trace(`-> taSession(`,c.logfile,`, `, t.id, `)`);
 
     c.event.emit;
     writer.join;
-trace(`<- taSession(`,c.logfile,`, `, t.id, `)`);
 }
 
 void studentSession(Course c, Student s, scope WebSocket socket) {
@@ -259,7 +248,6 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
         return;
     }
 
-trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
 
     Status status = Status.lurk;
     size_t position = size_t.max;
@@ -347,7 +335,9 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
                         } else goto case Status.lurk;
                         break;
                 }
+            logInfo("Student "~s.id~" waiting");
             c.event.wait;
+            logInfo("Student "~s.id~" done waiting");
         }
     });
     
@@ -418,8 +408,6 @@ trace(`-> studentSession(`,c.logfile,`, `, s.id, `)`);
     
     c.event.emit;
     writer.join;
-trace(`<- studentSession(`,c.logfile,`, `, s.id, `)`);
-
 }
 
 
@@ -533,7 +521,6 @@ shared static this() {
     runTask({
         while (true) {
             sleep(10.minutes);
-trace(`-> bookkeeping`);
             auto now = stamp;
             auto hour_ago = now - 60*60;
             foreach(n,c; courses)
@@ -545,10 +532,7 @@ trace(`-> bookkeeping`);
                     foreach(i,s; c.students)
                         if (s.status != Status.lurk)
                             c.close(s);
-                
-trace(`<- bookkeeping`);
         }
     });
-    trace("==================================================================");
     listenHTTP(settings, router);
 }

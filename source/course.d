@@ -383,7 +383,7 @@ final class Course {
                 }
                 return true;
             } else return false;
-        } catch (Exception ex) { import app; app.trace("exception in help: ", ex); return false; }
+        } catch (Exception ex) { logException(ex, "exception in help"); return false; }
     }
     bool helpFirst(TA from, uint when = 0) {
         try {
@@ -398,7 +398,7 @@ final class Course {
                 return help(from, h, when);
             }
             return false;
-        } catch(Exception ex) { import app; app.trace("exception in helpFirst: ", ex); return false; }
+        } catch(Exception ex) { logException(ex, "exception in helpFirst"); return false; }
     }
     /// ditto
     bool unhelp(TA from, uint when = 0) {
@@ -425,7 +425,7 @@ final class Course {
                 }
                 return true;
             } else return false;
-        } catch(Exception ex) { import app; app.trace("exception in unhelp: ", ex); return false; }
+        } catch(Exception ex) { logException(ex, "exception in unhelp"); return false; }
     }
     /// ditto
     bool resolve(TA from, string notes, uint when = 0) {
@@ -443,7 +443,7 @@ final class Course {
                 }
                 return true;
             } else return false;
-        } catch(Exception ex) { import app; app.trace("exception in resolve: ", ex); return false; }
+        } catch(Exception ex) { logException(ex, "exception in resolve"); return false; }
     }
     
     /// Student action wrappers (forwards to TA class, logs, and manages queue)
@@ -466,7 +466,7 @@ final class Course {
                 }
                 return true;
             } else return false;
-        } catch(Exception ex) { import app; app.trace("exception in request: ", ex); return false; }
+        } catch(Exception ex) { logException(ex, "exception in request"); return false; }
     }
     /// ditto
     bool retract(Student from, uint when = 0) {
@@ -488,7 +488,7 @@ final class Course {
                 }
                 return true;
             } else return false;
-        } catch(Exception ex) { import app; app.trace("exception in retract: ", ex); return false; }
+        } catch(Exception ex) { logException(ex, "exception in retract"); return false; }
     }
     /// ditto
     bool close(Student from, uint when = 0) {
@@ -510,7 +510,7 @@ final class Course {
                 }
                 return true;
             } else return false;
-        } catch(Exception ex) { import app; app.trace("exception in close: ", ex); return false; }
+        } catch(Exception ex) { logException(ex, "exception in close"); return false; }
     }
     /// ditto
     bool report(Student from, TA about, string notes, string comments, uint when = 0) {
@@ -529,7 +529,7 @@ final class Course {
                 }
                 return true;
             } else return false;
-        } catch(Exception ex) { import app; app.trace("exception in report: ", ex); return false; }
+        } catch(Exception ex) { logException(ex, "exception in report"); return false; }
     }
 }
 
