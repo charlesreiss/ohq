@@ -44,15 +44,6 @@ var ta2student = {
     "absent": "Not present",
     "other": "Other",
 }
-<?php /** Discovers the set of assignments to list as tasks */
-$assignments = json_decode(file_get_contents('meta/assignments.json'), true);
-echo "var tasks = {\n";
-foreach($assignments as $k=>$v) {
-    if ($v['group'] == 'PA')
-        echo "    '$v[group]':\"$v[group]\",\n";
-}
-echo "}";
-?>
 
 /** UI material */
 var words = {
@@ -92,6 +83,38 @@ function prettydate(t) {
     return d.toTimeString().substring(0,5) + '\n' + d.toDateString().substring(0, 10);
 }
 
+function getHelpForm(data, other) {
+    if (other) {
+        no_one = 'No one else'
+        people = 'other people'
+    } else {
+        no_one = 'No one'
+        people = 'people'
+    }
+    if (data.crowd == 0) {
+        return '<p>' + no_one + ' is waiting for help.</p>\
+        <input type="button" value="View your help history" onclick="history()"/>'
+    } else {
+        var task_text = '';
+        html = ['<p>there are '+data.crowd+' ' + people +' waiting for help. '+task_text+'.</p>'];
+        html.push('<ul>')
+        for (person of data.waiting) {
+            if (person.line) {
+                html.push('<li><span class="position">[' + person.line + ']</span> ');
+            } else {
+                html.push('<li>');
+            }
+            html.push(person.name + ' (' + person.id + '): ' + person.what);
+            html.push('<input type="button" value="help this student" onclick="helpStudent(\'' + person.id + '\')">');
+        }
+        html.push('</ul>')
+        html.push('<input type="hidden" name="req" value="help"/>')
+        html.push('<input type="button" value="Help one of them" onclick="sendForm()"/>')
+        html.push('<input type="button" value="View your help history" onclick="history()"/>')
+        return html.join('');
+    }
+}
+
 /** main websocket guts... probably needs refactoring */
 function connect() {
     setText("connecting "+user+"...");
@@ -119,23 +142,18 @@ function connect() {
 ///////////////////////////// The Student Messages /////////////////////////////
         } else if (kind == 'lurk') {
             var html = [
-                '<img class="float" src="//archimedes.cs.virginia.edu/StacksStickers.png"/>',
+                // '<img class="float" src="//archimedes.cs.virginia.edu/StacksStickers.png"/>',
                 '<p>There are currently ', about(data.crowd), ' other students waiting for help</p>',
                 '<input type="hidden" name="req" value="request"/>',
-                '<p>Location: <input type="text" name="where" list="seats"/>',
-                ' (should be a seat number in Thorton Stacks; see label at your table or map to right)</p>',
-                '<p>Task: <select name="what">',
-                '<option value="">(select one)</option>',
-                '<option value="conceptual">non-homework help</option>',
+                '<input type="hidden" name="where" value="[no location used]"/>',
+                '<p>Brief description of problem:<input type="text" name="what">',
             ];
-            for(var k in tasks) {
-                html.push('<option value="',k,'">',k,' - ', tasks[k],'</option>')
-            }
             html.push(
                 '</select></p>',
                 '<input type="button" value="Request Help" onclick="sendForm()"/>',
 //                 '<input type="button" value="View your help history" onclick="history()"/>',
             );
+            console.log('student lurk');
             content.innerHTML = html.join('');
         } else if (kind == "line") {
             content.innerHTML = '<p>You are currently number '+(data.index+1)+' in line for getting help</p>\
@@ -195,26 +213,11 @@ function connect() {
 /////////////////////////////// The TA Messages ///////////////////////////////
         } else if (kind == "watch") {
             var can_post = '<p>Announcement text:</br><textarea id="to-send"></textarea><br/>Show for <input type="text" id="show-minutes" value="5" size="4"/> minutes <input type="button" value="post announcement" onclick="broadcastAnnouncement()"/></p>';
+            var html_form = getHelpForm(data);
+            content.innerHTML = html_form + can_post;
             if (data.crowd == 0) {
-                content.innerHTML = '<p>No one is waiting for help.</p>\
-                <input type="button" value="View your help history" onclick="history()"/>'+can_post;
-                document.title = 'Empty OHs';
                 document.body.style.backgroundColor = '#dad0dd';
             } else {
-                var sortable = [];
-                for(var k in data.qset) sortable.push([data.qset[k], k]);
-                sortable.sort();
-                var task_text;
-                if (sortable.length == 1) task_text = 'All are asking about ' + sortable[0][1];
-                else {
-                    task_text = 'They are asking about ';
-                    for(var i=sortable.length-1; i >=0; i-=1)
-                        task_text += sortable[i][1] + ' (' + (sortable[i][0])+(i ? '), ' : ')');
-                }
-                content.innerHTML = '<p>There are '+data.crowd+' people waiting for help. '+task_text+'.</p>\
-                <input type="hidden" name="req" value="help"/>\
-                <input type="button" value="Help one of them" onclick="sendForm()"/>\
-                <input type="button" value="View your help history" onclick="history()"/>'+can_post;
                 document.title = data.crowd+ ' waiting people';
                 document.body.style.backgroundColor = '#ffff00';
             }
@@ -223,30 +226,34 @@ function connect() {
             else document.body.style.backgroundColor = '#ffff00';
             
             var html = [
-                '<img class="float" src="//archimedes.cs.virginia.edu/StacksStickers.png"/>',
-                '<p>You are helping ', data.name, ' (', data.id, ') ',
-                '<img class="float" src="picture.php?user=', data.id, '"/>', '</p>',
-                '<p>Seat: <b>', data.where, '</b></p>',
-                '<p>Task: ', data.what, '</p>',
-                '<p>There are ', data.crowd, ' other people waiting for help.</p>',
-                '<input type="button" value="Finished helping" onclick="showfb()" id="feedbackshower"/>',
-                '<div id="feedbacktable" style="display:none">',
-                '<table style="border-collapse: collapse"><tbody>',
-            ];
-            for(var k in ta2student) {
-                html.push('<tr><td><input type="checkbox" value="',k,'"></td><td> ',ta2student[k],'</td></tr>')
+                // '<img class="float" src="//archimedes.cs.virginia.edu/StacksStickers.png"/>',
+                '<p>You are helping ', data.helps.length, ' students:<ul>'
+            ]
+            for (var help of data.helps) {
+                html.push('<li>', help.name, ' (', help.id, ') ')
+                html.push('<img class="float" src="picture.php?user=', help.id, '"/>', '</p>')
+                // '<p>Seat: <b>', data.where, '</b></p>',
+                html.push('<p>Task: ', help.what, '</p>')
+                html.push(
+                    '<input type="button" value="Finished helping" onclick="showfb(\'', help.id, '\')" id="feedbackshower-', help.id, '"/>',
+                    '<div id="feedbacktable-', help.id, '" style="display:none">',
+                    '<table style="border-collapse: collapse"><tbody>',
+                );
+                for(var k in ta2student) {
+                    html.push('<tr><td><input type="checkbox" value="',k,'"></td><td> ',ta2student[k],'</td></tr>')
+                }
+                html.push(
+                    '</tbody></table>',
+                    '<input type="button" value="Finished helping" onclick="resolve(\'', help.id, '\')"/>',
+                    '<input type="button" value="Return to queue unhelped" onclick="unhelp(\'', help.id, '\')"/>',
+                    '</div>',
+                )
             }
-            html.push(
-                '</tbody></table>',
-                '<input type="button" value="Finished helping" onclick="resolve()"/>',
-                '<input type="button" value="Return to queue unhelped" onclick="unhelp()"/>',
-                '</div>',
-//                '<input type="button" value="View your help history" onclick="history()"/>',
-            );
+            html.push('</ul>');
+            html.push(getHelpForm(data, true))
             content.innerHTML = html.join('');
 
-            
-            document.title = 'Helping ('+data.crowd + ' waiting people)';
+            document.title = 'Helping '+ data.helps.length + ' ('+data.crowd + ' waiting people)';
         } else if (kind == "ta-history") {
             var tab = document.createElement('table');
             tab.appendChild(document.createElement('thead'));
@@ -302,11 +309,14 @@ function connect() {
     }
 }
 
-function showfb() {
-    document.getElementById('feedbackshower').setAttribute('style', 'display:none;');
-    document.getElementById('feedbacktable').setAttribute('style', '');
+function showfb(student_id) {
+    document.getElementById('feedbackshower-' + student_id).setAttribute('style', 'display:none;');
+    document.getElementById('feedbacktable-' + student_id).setAttribute('style', '');
 }
 
+function helpStudent(id) {
+    socket.send('{"req":"help","student":"' + id + '"}');
+}
 
 function sendForm() {
     var obj = {};
@@ -337,14 +347,15 @@ function sendForm() {
     socket.send(JSON.stringify(obj));
 }
 
-function resolve() {
+function resolve(student_id) {
     var message = [];
-    var ins = document.getElementsByTagName('input');
+    var table = document.getElementById('feedbacktable-' + student_id);
+    var ins = table.getElementsByTagName('input');
     for(var i=0; i<ins.length; i+=1)
         if (ins[i].checked)
             message.push(ins[i].value);
-    
-    socket.send('{"req":"resolve","notes":"'+message+'"}');
+    console.log('about to resolve') 
+    socket.send('{"req":"resolve","student":"' + student_id + '","notes":"'+message+'"}');
 }
 function report() {
     var message = [];
@@ -359,8 +370,8 @@ function report() {
         comments:comments
     }));
 }
-function unhelp() {
-    socket.send('{"req":"unhelp"}');
+function unhelp(student_id) {
+    socket.send('{"req":"unhelp","student":"' + student_id +'"}');
 }
 function history() {
     socket.send('{"req":"history"}');

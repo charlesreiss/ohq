@@ -13,11 +13,23 @@ uint stamp(uint when = 0) {
 enum Status { lurk, hand, line, help, report }
 final class Help {
     uint req, hlp, fin;
-    string task, loc, notes;
+    string task, task_category, loc, notes;
     Student s;
     TA t;
     
     ulong priority() { return s.priority; }
+    
+    Json ta_json() {
+        return Json([
+            "request":Json(req),
+            "help":Json(hlp),
+            "finish":Json(fin),
+            "id":Json(s.id),
+            "name":Json(s.name),
+            "what":Json(task),
+            "where":Json(loc),
+        ]);
+    }
 }
 final class Student {
     string id, name;
@@ -59,6 +71,8 @@ final class Student {
         h.fin = stamp(when);
         h.notes = "retracted";
         status = Status.lurk;
+        h.t.student_id_to_active_help.remove(id);
+        h.t.recompute_status();
         return h;
     }
     Help close(uint when = 0) {
@@ -66,6 +80,8 @@ final class Student {
         Help h = history[$-1];
         h.fin = stamp(when);
         h.notes = "OH closed";
+        h.t.student_id_to_active_help.remove(id);
+        h.t.recompute_status();
         status = Status.lurk;
         return h;
     }
@@ -79,32 +95,48 @@ final class Student {
 final class TA {
     string id, name;
     Help[] history;
+    int[string] student_id_to_active_help;
     Status status;
+
+    void recompute_status() {
+        if (student_id_to_active_help.length == 0) {
+            status = Status.lurk; 
+        } else {
+            status = Status.help;
+        }
+    }  
+    
     bool help(Help h, uint when = 0) {
-        if (status != Status.lurk || h.hlp || h.fin) return false;
+        // if (status != Status.lurk || h.hlp || h.fin) return false;
         history ~= h;
         h.t = this;
         h.hlp = stamp(when);
         h.s.status = Status.help;
         status = Status.help;
+        student_id_to_active_help[h.s.id] = cast(int)(history.length - 1);
         return true;
     }
-    Help unhelp() {
-        if (status != Status.help || history.length == 0 || history[$-1].t != this || history[$-1].fin) return null;
-        Help h = history[$-1];
+    Help unhelp(Student s) {
+        if (!(s.id in student_id_to_active_help)) {
+            return null;
+        }
+        Help h = s.history[$-1];
+        if (h.t != this) {
+            return null;
+        }
         // don't remove from history; let them see who they attempted but failed to help
         // h.t = null;
-        status = Status.lurk;
         h.s.status = Status.hand;
         h.hlp = 0;
+        student_id_to_active_help.remove(s.id);
+        recompute_status();
         return h;
     }
-    bool resolve(string notes, uint when = 0) {
-        if (status != Status.help || history.length == 0 || history[$-1].t != this || history[$-1].fin) return false;
-        Help h = history[$-1];
+    bool resolveHelp(Help h, string notes, uint when = 0) {
         h.notes = notes;
         h.fin = stamp(when);
-        status = Status.lurk;
+        student_id_to_active_help.remove(h.s.id);
+        recompute_status();
         
         import std.string : indexOf;
         if (h.notes.indexOf("absent") >= 0)
@@ -112,6 +144,23 @@ final class TA {
         else
             h.s.status = Status.report;
         return true;
+    }
+
+    bool resolveStudent(Student s, string notes, uint when = 0) {
+        foreach_reverse (ref item; history) {
+            if (item.fin) continue;
+            if (item.s.id == s.id) {
+                return resolveHelp(item, notes, when);
+            }
+        }
+        return false;
+    }
+    bool resolveLast(string notes, uint when = 0) {
+        foreach_reverse (ref item; history) {
+            if (item.fin) continue;
+            return resolveHelp(item, notes, when);
+        }
+        return false;
     }
 }
 final class Broadcast {
@@ -211,12 +260,14 @@ final class Course {
                             case "unhelp":
                                 unhelp(
                                     tas[data["ta"].get!string],
+                                    students[data["student"].get!string],
                                     data["when"].get!uint
                                 );
                                 break;
                             case "resolve":
-                                resolve(
+                                resolveStudent(
                                     tas[data["ta"].get!string],
+                                    students[data["student"].get!string],
                                     data["notes"].get!string,
                                     data["when"].get!uint
                                 );
@@ -247,7 +298,7 @@ final class Course {
                                 logError("Unexpected log entry " ~ data.toString);
                         }
                     } catch (JSONException ex) {
-                        logError("Unexpected log entry " ~ data.toString);
+                        logError(text("Unexpected log entry ", data.toString, ": ", ex));
                     }
                 }
             } catch(JSONException ex) {
@@ -263,6 +314,25 @@ final class Course {
             line.add(hands.front);
             hands.popFront;
         }
+    }
+
+    Json waiting_json() {
+        Json[] waiters;
+        int line_index = 1;
+        foreach (h; line.toList) {
+            Json h_json = h.ta_json();
+            h_json["line"] = line_index;
+            line_index += 1;
+            h_json["priority"] = h.priority;
+            waiters ~= h_json;
+        }
+        foreach (h; hands) {
+            Json h_json = h.ta_json();
+            h_json["line"] = null;
+            h_json["priority"] = h.priority;
+            waiters ~= h_json;
+        }
+        return Json(waiters);
     }
     
     Json tasks_json() {
@@ -370,6 +440,7 @@ final class Course {
         try {
             if (from.help(h, when)) {
                 line.remove(h);
+                hands.remove(h);
                 fillLine();
                 task_count[h.task] -= 1;
                 if (!when) {
@@ -384,6 +455,25 @@ final class Course {
                 return true;
             } else return false;
         } catch (Exception ex) { logException(ex, "exception in help"); return false; }
+    }
+    bool helpStudent(TA from, Student s, uint when = 0) {
+        try {
+            if (!line.empty) {
+                Help h;
+                foreach(i; 0..line.length) { // skip ones previously returned to line, if possible
+                    h = line[i];
+                    if (h.s.id == s.id) {
+                        return help(from, h, when);
+                    }
+                }
+            }
+            foreach (h; hands) {
+                if (h.s.id == s.id) {
+                    return help(from, h, when);
+                }
+            }
+            return false;
+        } catch(Exception ex) { logException(ex, "exception in helpStudent"); return false; }
     }
     bool helpFirst(TA from, uint when = 0) {
         try {
@@ -401,9 +491,9 @@ final class Course {
         } catch(Exception ex) { logException(ex, "exception in helpFirst"); return false; }
     }
     /// ditto
-    bool unhelp(TA from, uint when = 0) {
+    bool unhelp(TA from, Student s, uint when = 0) {
         try {
-            Help h = from.unhelp;
+            Help h = from.unhelp(s);
             if (h !is null) {
                 version(all) { // return to front of line
                     line.addInFront(h);
@@ -427,17 +517,18 @@ final class Course {
             } else return false;
         } catch(Exception ex) { logException(ex, "exception in unhelp"); return false; }
     }
-    /// ditto
-    bool resolve(TA from, string notes, uint when = 0) {
+    
+    bool resolveStudent(TA from, Student s, string notes, uint when = 0) {
         try {
-            if (from.resolve(notes, when)) {
+            if (from.resolveStudent(s, notes, when)) {
+                Help h = s.history[$-1];
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("resolve"),
                         "ta":Json(from.id),
-                        "student":Json(from.history[$-1].s.id), // extraneous but nice for some other reports
+                        "student":Json(s.id), // extraneous but nice for some other reports
                         "notes":Json(notes),
-                        "when":Json(from.history[$-1].fin),
+                        "when":Json(h.fin),
                     ])~'\n');
                     event.emit;
                 }

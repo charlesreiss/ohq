@@ -89,9 +89,13 @@ void userSession(scope WebSocket socket) {
         }
     }
     Course c = courses[course];
-    if (user in c.tas || user == "lat7h")
+    if (user.startsWith("sampleta-") && !(user in c.tas))
+        c.addTA(user, user, true);
+    if (user.startsWith("sample-") && !(user in c.students))
+        c.addStudent(user, user, true);
+    if (user in c.tas)
         taSession(c, c.tas[user], socket);
-    else if (user in c.students || user == "mst3k")
+    else if (user in c.students)
         studentSession(c, c.students[user], socket);
     else
         socket.send(serializeToJsonString(
@@ -105,11 +109,13 @@ void taSession(Course c, TA t, scope WebSocket socket) {
     size_t position = size_t.max;
     size_t tacount = size_t.max;
     uint last_broadcast = 0;
+    bool changed_helping = false;
     
     auto writer = runTask({
         while(socket.connected) {
             // logInfo("TA "~t.id~" got event");
-            bool resend = (t.status != status);
+            bool resend = (true || t.status != status || changed_helping);
+            changed_helping = false;
             status = t.status;
             auto tmp = c.hands.length + c.line.length;
             if (tmp != position) { position = tmp; resend = true; }
@@ -133,7 +139,7 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                     resend = true;
                 }
             }
-
+            
             if (resend)
                 final switch(status) {
                     case Status.lurk:
@@ -141,20 +147,23 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                             "type":Json("watch"),
                             "crowd":Json(position),
                             "qset":c.tasks_json,
+                            "waiting":c.waiting_json,
                             "broadcasts":Json(alerts),
-                            // should we send the line too?
                         ]));
                         break;
                     case Status.help:
+                        Json[] helps;
+                        foreach (k,v; t.student_id_to_active_help) {
+                            auto h = t.history[v];
+                            helps ~= h.ta_json();
+                        }
                         auto h = t.history[$-1];
                         socket.send(serializeToJsonString([
                             "type":Json("assist"),
-                            "id":Json(h.s.id),
-                            "name":Json(h.s.name),
-                            "what":Json(h.task),
-                            "where":Json(h.loc),
+                            "helps":Json(helps),
                             "crowd":Json(position),
                             "qset":c.tasks_json,
+                            "waiting":c.waiting_json,
                             "broadcasts":Json(alerts),
                         ]));
                         break;
@@ -183,16 +192,26 @@ void taSession(Course c, TA t, scope WebSocket socket) {
             auto data = message.parseJsonString;
             switch(data["req"].get!string) {
                 case "help":
-                    if (!c.helpFirst(t))
-                        socket.send(`{"type":"error","message":"no students to help"}`);
+                    changed_helping = true;
+                    if ("student" in data) {
+                        if (!c.helpStudent(t, c.students[data["student"].get!string]))
+                            socket.send(`{"type":"error","message":"no students to help"}`);
+                    } else {
+                        if (!c.helpFirst(t))
+                            socket.send(`{"type":"error","message":"no students to help"}`);
+                    }
                     break;
                 case "unhelp":
-                    if (!c.unhelp(t))
+                    changed_helping = true;
+                    if (!c.unhelp(t, c.students[data["student"].get!string]))
                         socket.send(`{"type":"error","message":"no students to stop helping"}`);
                     break;
                 case "resolve":
-                    if (!c.resolve(t, data["notes"].get!string))
-                        socket.send(`{"type":"error","message":"no students to finish helping"}`);
+                    changed_helping = true;
+                    if (("student" in data) != null) {
+                        if (!c.resolveStudent(t, c.students[data["student"].get!string], data["notes"].get!string))
+                            socket.send(`{"type":"error","message":"not helping `~data["student"].get!string~`"}`);
+                    }
                     break;
                 case "history":
                     Json[] helps = new Json[t.history.length]; // allocate space
@@ -356,7 +375,7 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
             auto data = message.parseJsonString;
             switch(data["req"].get!string) {
                 case "request":
-                    if (!c.request(s, data["where"].get!string, data["what"].get!string))
+                    if (!c.request(s, data["where"].get!string,  data["what"].get!string))
                         socket.send(`{"type":"error","message":"unable to process duplicate help request"}`);
                     break;
                 case "update": // FIXME: currently not logged or reacted to...
@@ -403,6 +422,7 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
                 ["type":"error"
                 ,"message":"exception parsing "~message
                 ]));
+            logInfo("\n\n%s\n\n", ex);
         }
     }
     
@@ -523,10 +543,6 @@ shared static this() {
             sleep(10.minutes);
             auto now = stamp;
             auto hour_ago = now - 60*60;
-            foreach(n,c; courses)
-                foreach(i,t; c.tas)
-                    if (t.status == Status.help && t.history[$-1].hlp < hour_ago)
-                        c.resolve(t, "runaway session");
             if (!isOpen)
                 foreach(n,c; courses)
                     foreach(i,s; c.students)
