@@ -7,6 +7,7 @@ import vibe.core.log;
 import vibe.stream.tls;
 import vibe.http.router;
 import vibe.core.sync : ManualEvent, createManualEvent;
+import std.algorithm : startsWith;
 import std.functional : toDelegate;
 import std.conv : to, text;
 import course;
