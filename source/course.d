@@ -2,7 +2,7 @@ import vibe.data.json;
 import vibe.core.file;
 import vibe.core.log;
 import vibe.core.sync : ManualEvent, createSharedManualEvent;
-import std.conv : text;
+import std.conv : text, to;
 
 
 uint stamp(uint when = 0) {
@@ -38,7 +38,7 @@ final class Student {
     uint lastHelped() {
         foreach_reverse(h; history)
             if (h.hlp && h.fin)
-                return h.fin;
+                return h.hlp;
         return 0;
     }
     uint lastRequested() {
@@ -56,13 +56,17 @@ final class Student {
         return ans;
     }
     Help request(string where, string what, uint when = 0) {
-        if (status != Status.lurk) return null;
+        if (status != Status.lurk) {
+            logInfo("duplicate request? status = " ~ to!string(status));
+            return null;
+        }
         Help h = new Help;
         h.req = stamp(when);
         h.task = what; h.loc = where;
         h.s = this;
         history ~= h;
         status = Status.hand;
+        logInfo("Student request " ~ id);
         return h;
     }
     Help retract(uint when = 0) {
@@ -71,8 +75,11 @@ final class Student {
         h.fin = stamp(when);
         h.notes = "retracted";
         status = Status.lurk;
-        h.t.student_id_to_active_help.remove(id);
-        h.t.recompute_status();
+        if (h.t !is null) {
+            h.t.student_id_to_active_help.remove(id);
+            h.t.recompute_status();
+        }
+        logInfo("Student retract " ~ id);
         return h;
     }
     Help close(uint when = 0) {
@@ -80,8 +87,11 @@ final class Student {
         Help h = history[$-1];
         h.fin = stamp(when);
         h.notes = "OH closed";
-        h.t.student_id_to_active_help.remove(id);
-        h.t.recompute_status();
+        if (h.t !is null) {
+            h.t.student_id_to_active_help.remove(id);
+            h.t.recompute_status();
+        }
+        logInfo("Student close " ~ id);
         status = Status.lurk;
         return h;
     }
@@ -186,6 +196,7 @@ final class Broadcast {
 final class Course {
     TA[string] tas;
     Student[string] students;
+    bool softClosed;
     
     import std.container.binaryheap2;
     BinaryHeap!(Help[], "a.priority > b.priority") hands;
@@ -199,6 +210,7 @@ final class Course {
     shared ManualEvent event;
     
     this(string logfile) {
+        softClosed = false;
         this.logfile = logfile;
         hands.acquire(new Help[0]);
         line = new Queue!Help;
@@ -294,6 +306,10 @@ final class Course {
                                     false
                                 );
                                 break;
+                            case "softclose":
+                                softClose(false);
+                            case "softopen":
+                                softOpen(false);
                             default:
                                 logError("Unexpected log entry " ~ data.toString);
                         }
@@ -306,10 +322,33 @@ final class Course {
             }
         }
     }
+
+    void softClose(bool log=true) {
+        foreach (h; line.toList) {
+            hands.insert(h);
+            h.s.status = Status.hand;
+            line.remove(h);
+        }
+        softClosed = true;
+        if (log) {
+            appendToFile(logfile, serializeToJsonString(["action":"softclose"])~'\n');
+        }
+        event.emit;
+    }
+    
+    void softOpen(bool log=true) {
+        softClosed = false;
+        fillLine();
+        if (log) {
+            appendToFile(logfile, serializeToJsonString(["action":"softopen"])~'\n');
+        }
+        event.emit;
+    }
+
     void fillLine() {
         // TO DO: make the line length customizable
         // TO DO: add time constraints (line only fills when queue is open)
-        while (!hands.empty && (line.length < 10 || line.length*2 < hands.length)) {
+        while (!softClosed && !hands.empty && (line.length < 3 || line.length*3 < hands.length)) {
             hands.front.s.status = Status.line;
             line.add(hands.front);
             hands.popFront;
@@ -326,7 +365,7 @@ final class Course {
             h_json["priority"] = h.priority;
             waiters ~= h_json;
         }
-        foreach (h; hands) {
+        foreach (h; hands.dup) {
             Json h_json = h.ta_json();
             h_json["line"] = null;
             h_json["priority"] = h.priority;
@@ -458,6 +497,7 @@ final class Course {
     }
     bool helpStudent(TA from, Student s, uint when = 0) {
         try {
+            logInfo(from.id ~ " to help " ~ s.id);
             if (!line.empty) {
                 Help h;
                 foreach(i; 0..line.length) { // skip ones previously returned to line, if possible
@@ -467,7 +507,8 @@ final class Course {
                     }
                 }
             }
-            foreach (h; hands) {
+            foreach (h; hands.dup) {
+                logInfo("checking " ~ h.s.id);
                 if (h.s.id == s.id) {
                     return help(from, h, when);
                 }
@@ -501,6 +542,7 @@ final class Course {
                     task_count[h.task] += 1;
                 } else { // return to crowd
                     hands.insert(h);
+                    h.s.status = Status.hand;
                     fillLine();
                     task_count[h.task] += 1;
                 }
@@ -522,6 +564,7 @@ final class Course {
         try {
             if (from.resolveStudent(s, notes, when)) {
                 Help h = s.history[$-1];
+                h.s.status = Status.lurk;
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("resolve"),
@@ -544,6 +587,7 @@ final class Course {
             if (h !is null) {
                 hands.insert(h);
                 task_count[h.task] += 1;
+                h.s.status = Status.hand;
                 fillLine();
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
@@ -556,7 +600,10 @@ final class Course {
                     event.emit;
                 }
                 return true;
-            } else return false;
+            } else {
+                logInfo("request ignored? student " ~ from.id);
+                return false;
+            }
         } catch(Exception ex) { logException(ex, "exception in request"); return false; }
     }
     /// ditto
@@ -568,6 +615,7 @@ final class Course {
                 if (hand) hands.remove(h);
                 else line.remove(h);
                 task_count[h.task] -= 1;
+                h.s.status = Status.lurk;
                 fillLine();
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
@@ -590,6 +638,7 @@ final class Course {
                 if (hand) hands.remove(h);
                 else line.remove(h);
                 task_count[h.task] -= 1;
+                h.s.status = Status.lurk;
                 fillLine();
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([

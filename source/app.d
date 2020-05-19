@@ -12,17 +12,20 @@ import std.functional : toDelegate;
 import std.conv : to, text;
 import course;
 
-enum datadir = "/opt/ohq/logs/"; // should exist and contain sessions/ 
+enum name = "ohq-cr4bd";
+enum datadir = "/opt/" ~ name ~ "/logs/"; // should exist and contain sessions/ 
 // add files for each legal course (e.g., cs1110.log) to datadir
 
 Course[string] courses;
 shared string[string] session_key;
 
 void trackSessions() {
+    logInfo(text("about to track sessions in ", datadir ,"sessions"));
     DirectoryWatcher sessions = watchDirectory(datadir ~ "sessions");
     DirectoryChange[] changes;
     while(sessions.readChanges(changes))
         foreach(change; changes) {
+            logInfo(text("detected change in session dir ", change));
             if (change.type == DirectoryChangeType.modified)
                 session_key[change.path.head.name] = readFileUTF8(change.path);
         }
@@ -233,6 +236,12 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                         ["type":Json("ta-history")
                         ,"events":Json(helps)
                         ]));
+                    break;
+                case "softclose":
+                    c.softClose();
+                    break;
+                case "softopen":
+                    c.softOpen();
                     break;
                 case "broadcast":
                     if (!c.addBroadcast(t.id, data["message"].get!string, data["seconds"].get!uint))
