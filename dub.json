@@ -2,7 +2,7 @@
 	"authors": [
 		"Luther A. Tychonievich"
 	],
-	"name": "ohq",
+	"name": "cr4bd-ohq",
 	"license": "Public Domain",
 	"copyright": "Copyright © 2017–2019, Luther A. Tychonievich",
 	"description": "Office hour queing backend",

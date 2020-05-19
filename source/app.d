@@ -529,7 +529,7 @@ logInfo("permitted user");
 
 shared static this() {
     auto settings = new HTTPServerSettings;
-    settings.port = 1111;
+    settings.port = 1112;
     settings.hostName = "kytos.cs.virginia.edu";
     settings.bindAddresses = [/+"::1", "127.0.0.1",+/"128.143.67.106"];
     settings.tlsContext = createTLSContext(TLSContextKind.server);
