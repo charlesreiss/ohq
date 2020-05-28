@@ -10,25 +10,65 @@ uint stamp(uint when = 0) {
     return cast(typeof(return))(when ? when : Clock.currTime.toUnixTime);
 }
 
+string[string] extractRequestInfo(Json request) {
+    string[string] result;
+    if ("where" in request) {
+        result["where"] = request["where"].get!string;
+    }
+    if ("what" in request) {
+        result["what"] = request["what"].get!string;
+    }
+    logInfo("decoding " ~ request.toString);
+    if ("request-info" in request && request["request-info"] != Json(null)) {
+        foreach (string k, v; request["request-info"]) {
+            logInfo("found " ~ k ~ "," ~ v.get!string);
+            result[k] = v.get!string;
+        }
+    }
+    return result;
+}
+
+Json encodeRequestInfo(string[string] info) {
+    Json result = Json.emptyObject;
+    foreach (string k, v; info) {
+        result[k] = Json(v);
+    }
+    return result;
+}
+
 enum Status { lurk, hand, line, help, report }
 final class Help {
     uint req, hlp, fin;
-    string task, task_category, loc, notes;
+    string[string] request_info;
+    string notes;
     Student s;
     TA t;
     
     ulong priority() { return s.priority; }
     
-    Json ta_json() {
-        return Json([
+    Json as_json(bool include_notes = false) {
+        string ta_id = null;
+        if (t)
+            ta_id = t.id;
+        Json result = Json([
             "request":Json(req),
             "help":Json(hlp),
             "finish":Json(fin),
-            "id":Json(s.id),
-            "name":Json(s.name),
-            "what":Json(task),
-            "where":Json(loc),
+            "student":Json(s.id),
+            "ta":Json(ta_id),
+            "student_name":Json(s.name),
+            "what":Json(request_info.get("what", "")),
+            "where":Json(request_info.get("where", "")),
         ]);
+        if (include_notes) {
+            result["notes"] = Json(notes);
+        }
+        Json request_info_as_json = Json.emptyObject;
+        foreach (k, v; request_info) {
+            request_info_as_json[k] = v;
+        }
+        result["request-info"] = request_info_as_json;
+        return result;
     }
 }
 final class Student {
@@ -55,14 +95,14 @@ final class Student {
         ans |= lastRequested;
         return ans;
     }
-    Help request(string where, string what, uint when = 0) {
+    Help request(string[string] request_info, uint when = 0) {
         if (status != Status.lurk) {
             logInfo("duplicate request? status = " ~ to!string(status));
             return null;
         }
         Help h = new Help;
         h.req = stamp(when);
-        h.task = what; h.loc = where;
+        h.request_info = request_info;
         h.s = this;
         history ~= h;
         status = Status.hand;
@@ -203,7 +243,6 @@ final class Course {
     Queue!Help line;
     string[] ta_online;
     Broadcast[] broadcasts;
-    int[string] task_count;
     
     string logfile;
     
@@ -223,7 +262,7 @@ final class Course {
             try {
                 while(f.length > 1) {
                     Json data = f.parseJson;
-                    // logInfo("record "~data.toString);
+                    logInfo("record "~data.toString);
                     try {
                         switch(data["action"].get!string) {
                             case "student":
@@ -239,13 +278,16 @@ final class Course {
                                     false);
                                 break;
                             case "request":
-                                request(
-                                    students[data["student"].get!string],
-                                    data["where"].get!string,
-                                    data["what"].get!string,
-                                    data["when"].get!uint
-                                );
-                                fillLine;
+                                if ("student" in data && data["student"].get!string in students) {
+                                    request(
+                                        students[data["student"].get!string],
+                                        extractRequestInfo(data),
+                                        data["when"].get!uint
+                                    );
+                                    fillLine;
+                                } else {
+                                    logError("ignoring missing student in request???");
+                                }
                                 break;
                             case "retract":
                                 retract(
@@ -262,12 +304,21 @@ final class Course {
                                 fillLine;
                                 break;
                             case "help":
-                                help(
-                                    tas[data["ta"].get!string],
-                                    students[data["student"].get!string].history[$-1],
-                                    data["when"].get!uint
-                                );
-                                fillLine;
+                                if ("student" in data && data["student"].get!string in students) {
+                                    Student student = students[data["student"].get!string];
+                                    if (student.history.length > 0) {
+                                        help(
+                                            tas[data["ta"].get!string],
+                                            students[data["student"].get!string].history[$-1],
+                                            data["when"].get!uint
+                                        );
+                                        fillLine;
+                                    } else {
+                                        logError("ignoring missing student history???");
+                                    }
+                                } else {
+                                    logError("ignoring missing student in help???");
+                                }
                                 break;
                             case "unhelp":
                                 unhelp(
@@ -308,8 +359,21 @@ final class Course {
                                 break;
                             case "softclose":
                                 softClose(false);
+                                break;
                             case "softopen":
                                 softOpen(false);
+                                break;
+                            case "update":
+                                if (data["student"].get!string in students) {
+                                    updateRequest(
+                                        students[data["student"].get!string],
+                                        extractRequestInfo(data),
+                                        data["when"].get!uint
+                                    );
+                                } else {
+                                    logError("update for unexpected student");
+                                }
+                                break;
                             default:
                                 logError("Unexpected log entry " ~ data.toString);
                         }
@@ -359,25 +423,19 @@ final class Course {
         Json[] waiters;
         int line_index = 1;
         foreach (h; line.toList) {
-            Json h_json = h.ta_json();
+            Json h_json = h.as_json();
             h_json["line"] = line_index;
             line_index += 1;
             h_json["priority"] = h.priority;
             waiters ~= h_json;
         }
         foreach (h; hands.dup) {
-            Json h_json = h.ta_json();
+            Json h_json = h.as_json();
             h_json["line"] = null;
             h_json["priority"] = h.priority;
             waiters ~= h_json;
         }
         return Json(waiters);
-    }
-    
-    Json tasks_json() {
-        Json[string] ans;
-        foreach(k,v; task_count) if (v > 0) ans[k] = Json(v);
-        return Json(ans);
     }
     
     void addTA(string id, string name, bool log=true) {
@@ -481,7 +539,6 @@ final class Course {
                 line.remove(h);
                 hands.remove(h);
                 fillLine();
-                task_count[h.task] -= 1;
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("help"),
@@ -539,12 +596,10 @@ final class Course {
                 version(all) { // return to front of line
                     line.addInFront(h);
                     h.s.status = Status.line;
-                    task_count[h.task] += 1;
                 } else { // return to crowd
                     hands.insert(h);
                     h.s.status = Status.hand;
                     fillLine();
-                    task_count[h.task] += 1;
                 }
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
@@ -581,20 +636,18 @@ final class Course {
     }
     
     /// Student action wrappers (forwards to TA class, logs, and manages queue)
-    bool request(Student from, string where, string what, uint when = 0) {
+    bool request(Student from, string[string] request_info, uint when = 0) {
         try {
-            Help h = from.request(where, what, when);
+            Help h = from.request(request_info, when);
             if (h !is null) {
                 hands.insert(h);
-                task_count[h.task] += 1;
                 h.s.status = Status.hand;
                 fillLine();
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("request"),
                         "student":Json(from.id),
-                        "where":Json(where),
-                        "what":Json(what),
+                        "request-info":encodeRequestInfo(request_info),
                         "when":Json(h.req),
                     ])~'\n');
                     event.emit;
@@ -607,6 +660,24 @@ final class Course {
         } catch(Exception ex) { logException(ex, "exception in request"); return false; }
     }
     /// ditto
+    bool updateRequest(Student from, string[string] request_info, uint when = 0) {
+        try {
+            Help h = from.history[$-1];
+            h.request_info = request_info;
+            event.emit;
+            if (!when) {
+                appendToFile(logfile, serializeToJsonString([
+                    "action":Json("update"),
+                    "student":Json(from.id),
+                    "request-info":encodeRequestInfo(request_info),
+                    "when":Json(stamp(when)),
+                ]));
+            }
+            return true;
+        } catch(Exception ex) { logException(ex, "exception in request"); return false; }
+    }
+
+    /// ditto
     bool retract(Student from, uint when = 0) {
         try {
             bool hand = from.status == Status.hand;
@@ -614,7 +685,6 @@ final class Course {
             if (h !is null) {
                 if (hand) hands.remove(h);
                 else line.remove(h);
-                task_count[h.task] -= 1;
                 h.s.status = Status.lurk;
                 fillLine();
                 if (!when) {
@@ -637,7 +707,6 @@ final class Course {
             if (h !is null) {
                 if (hand) hands.remove(h);
                 else line.remove(h);
-                task_count[h.task] -= 1;
                 h.s.status = Status.lurk;
                 fillLine();
                 if (!when) {

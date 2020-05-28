@@ -12,7 +12,7 @@ import std.functional : toDelegate;
 import std.conv : to, text;
 import course;
 
-enum name = "ohq-cr4bd";
+enum name = "ohq-cr4bd-test";
 enum datadir = "/opt/" ~ name ~ "/logs/"; // should exist and contain sessions/ 
 // add files for each legal course (e.g., cs1110.log) to datadir
 
@@ -150,7 +150,6 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                         socket.send(serializeToJsonString([
                             "type":Json("watch"),
                             "crowd":Json(position),
-                            "qset":c.tasks_json,
                             "waiting":c.waiting_json,
                             "broadcasts":Json(alerts),
                         ]));
@@ -159,14 +158,13 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                         Json[] helps;
                         foreach (k,v; t.student_id_to_active_help) {
                             auto h = t.history[v];
-                            helps ~= h.ta_json();
+                            helps ~= h.as_json();
                         }
                         auto h = t.history[$-1];
                         socket.send(serializeToJsonString([
                             "type":Json("assist"),
                             "helps":Json(helps),
                             "crowd":Json(position),
-                            "qset":c.tasks_json,
                             "waiting":c.waiting_json,
                             "broadcasts":Json(alerts),
                         ]));
@@ -198,8 +196,12 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                 case "help":
                     changed_helping = true;
                     if ("student" in data) {
-                        if (!c.helpStudent(t, c.students[data["student"].get!string]))
-                            socket.send(`{"type":"error","message":"no students to help"}`);
+                        if (data["student"].get!string in c.students) {
+                            if (!c.helpStudent(t, c.students[data["student"].get!string]))
+                                socket.send(`{"type":"error","message":"no students to help"}`);
+                        } else {
+                            socket.send(`{"type":"error","message":"invalid student to help"}`);
+                        }
                     } else {
                         if (!c.helpFirst(t))
                             socket.send(`{"type":"error","message":"no students to help"}`);
@@ -209,6 +211,7 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                     changed_helping = true;
                     if (!c.unhelp(t, c.students[data["student"].get!string]))
                         socket.send(`{"type":"error","message":"no students to stop helping"}`);
+                    c.event.emit;
                     break;
                 case "resolve":
                     changed_helping = true;
@@ -222,15 +225,7 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                     helps.length = 0;
                     foreach_reverse(h; t.history) {
                         if (h.fin > 0)
-                            helps ~= Json([
-                                "request":Json(h.req),
-                                "help":Json(h.hlp),
-                                "finish":Json(h.fin),
-                                "id":Json(h.s.id),
-                                "name":Json(h.s.name),
-                                "what":Json(h.task),
-                                "where":Json(h.loc),
-                            ]);
+                            helps ~= h.as_json();
                     }
                     socket.send(serializeToJsonString(
                         ["type":Json("ta-history")
@@ -321,11 +316,20 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
             if (resend)
                 final switch(status) {
                     case Status.lurk:
-                        socket.send(serializeToJsonString([
-                            "type":Json("lurk"),
-                            "crowd":Json(position),
-                            "broadcasts":Json(alerts),
-                        ]));
+                        if (s.history.length == 0) {
+                            socket.send(serializeToJsonString([
+                                "type":Json("lurk"),
+                                "crowd":Json(position),
+                                "broadcasts":Json(alerts),
+                            ]));
+                        } else {
+                            socket.send(serializeToJsonString([
+                                "type":Json("lurk"),
+                                "crowd":Json(position),
+                                "broadcasts":Json(alerts),
+                                "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
+                            ]));
+                        }
                         break;
                     case Status.help:
                         socket.send(serializeToJsonString([
@@ -333,6 +337,7 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
                             "by":Json(s.history[$-1].t.name),
                             "crowd":Json(position),
                             "broadcasts":Json(alerts),
+                            "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
                         ]));
                         break;
                     case Status.hand:
@@ -340,6 +345,7 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
                             "type":Json("hand"),
                             "crowd":Json(position),
                             "broadcasts":Json(alerts),
+                            "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
                         ]));
                         break;
                     case Status.line:
@@ -347,6 +353,7 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
                             "type":Json("line"),
                             "index":Json(position),
                             "broadcasts":Json(alerts),
+                            "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
                         ]));
                         break;
                     case Status.report:
@@ -385,15 +392,14 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
             auto data = message.parseJsonString;
             switch(data["req"].get!string) {
                 case "request":
-                    if (!c.request(s, data["where"].get!string,  data["what"].get!string))
+                    if (!c.request(s, extractRequestInfo(data)))
                         socket.send(`{"type":"error","message":"unable to process duplicate help request"}`);
                     break;
-                case "update": // FIXME: currently not logged or reacted to...
-                    if (s.status == Status.lurk || s.status == Status.help)
+                case "update":
+                    if (s.status == Status.lurk || s.status == Status.help) {
                         socket.send(`{"type":"error","message":"can only edit pending help requests"}`);
-                    else {
-                        if ("where" in data) s.history[$-1].loc = data["where"].get!string;
-                        if ("what" in data) s.history[$-1].task = data["what"].get!string;
+                    } else {
+                        c.updateRequest(s, extractRequestInfo(data));
                     }
                     break;
                 case "retract":
@@ -529,7 +535,7 @@ logInfo("permitted user");
 
 shared static this() {
     auto settings = new HTTPServerSettings;
-    settings.port = 1112;
+    settings.port = 1113;
     settings.hostName = "kytos.cs.virginia.edu";
     settings.bindAddresses = [/+"::1", "127.0.0.1",+/"128.143.67.106"];
     settings.tlsContext = createTLSContext(TLSContextKind.server);
