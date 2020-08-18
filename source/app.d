@@ -12,7 +12,7 @@ import std.functional : toDelegate;
 import std.conv : to, text;
 import course;
 
-enum name = "ohq-cr4bd-test";
+enum name = "ohq-cr4bd";
 enum datadir = "/opt/" ~ name ~ "/logs/"; // should exist and contain sessions/ 
 // add files for each legal course (e.g., cs1110.log) to datadir
 
@@ -535,7 +535,7 @@ logInfo("permitted user");
 
 shared static this() {
     auto settings = new HTTPServerSettings;
-    settings.port = 1113;
+    settings.port = 1112;
     settings.hostName = "kytos.cs.virginia.edu";
     settings.bindAddresses = [/+"::1", "127.0.0.1",+/"128.143.67.106"];
     settings.tlsContext = createTLSContext(TLSContextKind.server);
