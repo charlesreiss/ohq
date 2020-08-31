@@ -671,7 +671,7 @@ final class Course {
                     "student":Json(from.id),
                     "request-info":encodeRequestInfo(request_info),
                     "when":Json(stamp(when)),
-                ]));
+                ])~'\n');
             }
             return true;
         } catch(Exception ex) { logException(ex, "exception in request"); return false; }
