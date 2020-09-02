@@ -272,10 +272,10 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
         return;
     }
 
-
     Status status = Status.lurk;
     size_t position = size_t.max;
     uint last_broadcast = 0;
+    s.maybeTimeoutReport(stamp);
     
     auto writer = runTask({
         while(socket.connected) {

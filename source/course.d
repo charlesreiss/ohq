@@ -135,6 +135,14 @@ final class Student {
         status = Status.lurk;
         return h;
     }
+    // if it's been too long since the student was last helped, don't ask them about it
+    void maybeTimeoutReport(uint now) {
+        if (status != Status.report) return;
+        Help h = history[$-1];
+        if (h.fin + 60 * 60 * 24 < now) { // XXX: hard-coded timeout
+            status = Status.lurk;
+        }
+    }
     bool report(string notes, string comments, uint when = 0) {
         // currently, reports are logged but not stored in memory; if we want them in memory, that would change here (probably)
         if (status != Status.report && status != Status.lurk) return false;
