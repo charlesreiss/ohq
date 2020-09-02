@@ -96,7 +96,7 @@ final class Student {
         return ans;
     }
     Help request(string[string] request_info, uint when = 0) {
-        if (status != Status.lurk) {
+        if (status != Status.lurk && status != Status.report) {
             logInfo("duplicate request? status = " ~ to!string(status));
             return null;
         }
@@ -137,7 +137,7 @@ final class Student {
     }
     bool report(string notes, string comments, uint when = 0) {
         // currently, reports are logged but not stored in memory; if we want them in memory, that would change here (probably)
-        if (status != Status.report) return false;
+        if (status != Status.report && status != Status.lurk) return false;
         status = Status.lurk;
         return true;
     }
@@ -619,7 +619,7 @@ final class Course {
         try {
             if (from.resolveStudent(s, notes, when)) {
                 Help h = s.history[$-1];
-                h.s.status = Status.lurk;
+                // h.s.status = Status.lurk;
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("resolve"),
