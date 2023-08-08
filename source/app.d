@@ -518,7 +518,7 @@ logInfo("permitted user");
         } catch (Exception ex) {
             res.writeBody(serializeToJsonString(
                 ["type":"error"
-                ,"message":"failed to parse roster file (send file to Luther Tychonievich for workaround)"
+                ,"message":"failed to parse roster file (send file to Luther Tychonievich for workaround):"~ex.toString
                 ]));
         }
         
@@ -536,8 +536,8 @@ logInfo("permitted user");
 shared static this() {
     auto settings = new HTTPServerSettings;
     settings.port = 1112;
-    settings.hostName = "kytos.cs.virginia.edu";
-    settings.bindAddresses = [/+"::1", "127.0.0.1",+/"128.143.67.106"];
+    settings.hostName = "kytos02.cs.virginia.edu";
+    settings.bindAddresses = [/+"::1", "127.0.0.1",+/"128.143.63.49"];
     settings.tlsContext = createTLSContext(TLSContextKind.server);
     settings.tlsContext.useCertificateChainFile("server.cer");
     settings.tlsContext.usePrivateKeyFile("server-pk8.key");
