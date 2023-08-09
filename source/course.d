@@ -244,6 +244,7 @@ final class Broadcast {
 final class Course {
     TA[string] tas;
     Student[string] students;
+    bool[string] helped_students;
     bool softClosed;
     
     import std.container.binaryheap2;
@@ -427,6 +428,14 @@ final class Course {
         }
     }
 
+    Json all_helped_json() {
+        Json[] lst;
+        foreach (s_id, b; helped_students) {
+            lst ~= students[s_id].history[$-1].as_json();
+        }
+        return Json(lst);
+    }
+
     Json waiting_json() {
         Json[] waiters;
         int line_index = 1;
@@ -546,6 +555,7 @@ final class Course {
             if (from.help(h, when)) {
                 line.remove(h);
                 hands.remove(h);
+                helped_students[h.s.id] = true;
                 fillLine();
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
@@ -609,6 +619,7 @@ final class Course {
                     h.s.status = Status.hand;
                     fillLine();
                 }
+                helped_students.remove(h.s.id);
                 if (!when) {
                     appendToFile(logfile, serializeToJsonString([
                         "action":Json("unhelp"),
@@ -622,9 +633,21 @@ final class Course {
             } else return false;
         } catch(Exception ex) { logException(ex, "exception in unhelp"); return false; }
     }
+
+    bool unhelp(Student s) {
+        try {
+            Help h = s.history[$-1];
+            if (h.t !is null) {
+                return unhelp(h.t, h.s);
+            } else {
+                return false;
+            }
+        } catch(Exception ex) { logException(ex, "exception in unhelp"); return false; }
+    }
     
     bool resolveStudent(TA from, Student s, string notes, uint when = 0) {
         try {
+            helped_students.remove(s.id);
             if (from.resolveStudent(s, notes, when)) {
                 Help h = s.history[$-1];
                 // h.s.status = Status.lurk;

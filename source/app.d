@@ -19,16 +19,26 @@ enum datadir = "/opt/" ~ name ~ "/logs/"; // should exist and contain sessions/
 Course[string] courses;
 shared string[string] session_key;
 
-void trackSessions() {
-    logInfo(text("about to track sessions in ", datadir ,"sessions"));
-    DirectoryWatcher sessions = watchDirectory(datadir ~ "sessions");
-    DirectoryChange[] changes;
-    while(sessions.readChanges(changes))
-        foreach(change; changes) {
-            logInfo(text("detected change in session dir ", change));
-            if (change.type == DirectoryChangeType.modified)
-                session_key[change.path.head.name] = readFileUTF8(change.path);
+void trackSessions() nothrow {
+    try {
+        logInfo(text("about to track sessions in ", datadir ,"sessions"));
+        DirectoryWatcher sessions = watchDirectory(datadir ~ "sessions");
+        DirectoryChange[] changes;
+        while(sessions.readChanges(changes))
+            foreach(change; changes) {
+                logInfo(text("detected change in session dir ", change));
+                if (change.type == DirectoryChangeType.modified)
+                    session_key[change.path.head.name] = readFileUTF8(change.path);
+            }
+    } catch (Exception ex) {
+        try {
+            logError("Error in tracking session directory changes " ~ ex.toString);
+        } catch (Exception ex) {
+            logError("Error in tracking session directory changes [exception outputting exception]");
         }
+        import core.stdc.stdlib : exit;
+        exit(1);
+    }
 }
 
 size_t fuzzNum(size_t t) {
@@ -115,73 +125,83 @@ void taSession(Course c, TA t, scope WebSocket socket) {
     uint last_broadcast = 0;
     bool changed_helping = false;
     
-    auto writer = runTask({
-        while(socket.connected) {
-            // logInfo("TA "~t.id~" got event");
-            bool resend = (true || t.status != status || changed_helping);
-            changed_helping = false;
-            status = t.status;
-            auto tmp = c.hands.length + c.line.length;
-            if (tmp != position) { position = tmp; resend = true; }
-            
-            if (c.ta_online.length != tacount) {
-                auto msg = `{"type":"ta-set","tas":[`;
-                bool comma = false;
-                foreach(tan; c.ta_online) {
-                    if (comma) msg ~= `,`;
-                    msg ~= `"` ~ tan ~ `"`;
-                    comma = true;
+    auto writer = runTask(() nothrow {
+        try {
+            while(socket.connected) {
+                // logInfo("TA "~t.id~" got event");
+                bool resend = (true || t.status != status || changed_helping);
+                changed_helping = false;
+                status = t.status;
+                auto tmp = c.hands.length + c.line.length;
+                if (tmp != position) { position = tmp; resend = true; }
+                
+                if (c.ta_online.length != tacount) {
+                    auto msg = `{"type":"ta-set","tas":[`;
+                    bool comma = false;
+                    foreach(tan; c.ta_online) {
+                        if (comma) msg ~= `,`;
+                        msg ~= `"` ~ tan ~ `"`;
+                        comma = true;
+                    }
+                    socket.send(msg ~ `]}`);
+                    tacount = c.ta_online.length;
                 }
-                socket.send(msg ~ `]}`);
-                tacount = c.ta_online.length;
+                Json[] alerts;
+                foreach(i; 0..c.broadcasts.length) {
+                    if (c.broadcasts[i].posted > last_broadcast) {
+                        alerts ~= c.broadcasts[i].msg;
+                        if (i == c.broadcasts.length-1) last_broadcast = c.broadcasts[i].posted;
+                        resend = true;
+                    }
+                }
+                
+                if (resend)
+                    final switch(status) {
+                        case Status.lurk:
+                            socket.send(serializeToJsonString([
+                                "type":Json("watch"),
+                                "crowd":Json(position),
+                                "waiting":c.waiting_json,
+                                "broadcasts":Json(alerts),
+                                "all_helped":c.all_helped_json,
+                            ]));
+                            break;
+                        case Status.help:
+                            Json[] helps;
+                            foreach (k,v; t.student_id_to_active_help) {
+                                auto h = t.history[v];
+                                helps ~= h.as_json();
+                            }
+                            auto h = t.history[$-1];
+                            socket.send(serializeToJsonString([
+                                "type":Json("assist"),
+                                "helps":Json(helps),
+                                "all_helped":c.all_helped_json,
+                                "crowd":Json(position),
+                                "waiting":c.waiting_json,
+                                "broadcasts":Json(alerts),
+                            ]));
+                            break;
+                        case Status.hand: // TAs cannot raise their hand
+                            logError("TA "~t.name~" ("~t.id~") has status \"hand\"");
+                            break;
+                        case Status.line: // TAs cannot get in line
+                            logError("TA "~t.name~" ("~t.id~") has status \"line\"");
+                            break;
+                        case Status.report: // TAs cannot report on other TAs
+                            logError("TA "~t.name~" ("~t.id~") has status \"report\"");
+                            break;
+                    }
+                logInfo("TA "~t.id~" waiting");
+                c.event.wait;
+                logInfo("TA "~t.id~" done waiting");
             }
-            Json[] alerts;
-            foreach(i; 0..c.broadcasts.length) {
-                if (c.broadcasts[i].posted > last_broadcast) {
-                    alerts ~= c.broadcasts[i].msg;
-                    if (i == c.broadcasts.length-1) last_broadcast = c.broadcasts[i].posted;
-                    resend = true;
-                }
+        } catch (Exception ex) {
+            try {
+                logError("Exception from TA connection "~ex.toString);
+            } catch (Exception ex) {
+                logError("Exception from TA connection [exception in converting to string]");
             }
-            
-            if (resend)
-                final switch(status) {
-                    case Status.lurk:
-                        socket.send(serializeToJsonString([
-                            "type":Json("watch"),
-                            "crowd":Json(position),
-                            "waiting":c.waiting_json,
-                            "broadcasts":Json(alerts),
-                        ]));
-                        break;
-                    case Status.help:
-                        Json[] helps;
-                        foreach (k,v; t.student_id_to_active_help) {
-                            auto h = t.history[v];
-                            helps ~= h.as_json();
-                        }
-                        auto h = t.history[$-1];
-                        socket.send(serializeToJsonString([
-                            "type":Json("assist"),
-                            "helps":Json(helps),
-                            "crowd":Json(position),
-                            "waiting":c.waiting_json,
-                            "broadcasts":Json(alerts),
-                        ]));
-                        break;
-                    case Status.hand: // TAs cannot raise their hand
-                        logError("TA "~t.name~" ("~t.id~") has status \"hand\"");
-                        break;
-                    case Status.line: // TAs cannot get in line
-                        logError("TA "~t.name~" ("~t.id~") has status \"line\"");
-                        break;
-                    case Status.report: // TAs cannot report on other TAs
-                        logError("TA "~t.name~" ("~t.id~") has status \"report\"");
-                        break;
-                }
-            logInfo("TA "~t.id~" waiting");
-            c.event.wait;
-            logInfo("TA "~t.id~" done waiting");
         }
     });
     
@@ -211,6 +231,16 @@ void taSession(Course c, TA t, scope WebSocket socket) {
                     changed_helping = true;
                     if (!c.unhelp(t, c.students[data["student"].get!string]))
                         socket.send(`{"type":"error","message":"no students to stop helping"}`);
+                    c.event.emit;
+                    break;
+                case "unhelp-other":
+                    if (!c.unhelp(c.students[data["student"].get!string]))
+                        socket.send(`{"type":"error","message":"could not force-unhelp student"}`);
+                    c.event.emit;
+                    break;
+                case "retract-other":
+                    if (!c.retract(c.students[data["student"].get!string]))
+                        socket.send(`{"type":"error","message":"could not force-retract student"}`);
                     c.event.emit;
                     break;
                 case "resolve":
@@ -277,103 +307,111 @@ void studentSession(Course c, Student s, scope WebSocket socket) {
     uint last_broadcast = 0;
     s.maybeTimeoutReport(stamp);
     
-    auto writer = runTask({
-        while(socket.connected) {
-            if (!isOpen) {
-                socket.send(serializeToJsonString(
-                    ["type":"error"
-                    ,"message":"Office hours are currently closed"
-                    ]));
-                socket.close();
-                break;
-            }
-            // logInfo("Student "~s.id~" got event");
-            bool resend = (s.status != status);
-            status = s.status;
-            final switch(status) {
-                case Status.report: goto case;
-                case Status.lurk: goto case;
-                case Status.help: goto case;
-                case Status.hand:
-                    auto tmp = fuzzNum(c.hands.length + c.line.length);
-                    if (tmp != position) { position = tmp; resend = true; }
+    auto writer = runTask(() nothrow {
+        try {
+            while(socket.connected) {
+                if (!isOpen) {
+                    socket.send(serializeToJsonString(
+                        ["type":"error"
+                        ,"message":"Office hours are currently closed"
+                        ]));
+                    socket.close();
                     break;
-                case Status.line:
-                    auto tmp = c.line.indexOf(s.history[$-1]);
-                    if (tmp != position) { position = tmp; resend = true; }
-                    break;
-            }
-
-            Json[] alerts;
-            foreach(i; 0..c.broadcasts.length) {
-                if (c.broadcasts[i].posted > last_broadcast) {
-                    alerts ~= c.broadcasts[i].msg;
-                    if (i == c.broadcasts.length-1) last_broadcast = c.broadcasts[i].posted;
-                    resend = true;
                 }
-            }
-
-            if (resend)
+                // logInfo("Student "~s.id~" got event");
+                bool resend = (s.status != status);
+                status = s.status;
                 final switch(status) {
-                    case Status.lurk:
-                        if (s.history.length == 0) {
+                    case Status.report: goto case;
+                    case Status.lurk: goto case;
+                    case Status.help: goto case;
+                    case Status.hand:
+                        auto tmp = fuzzNum(c.hands.length + c.line.length);
+                        if (tmp != position) { position = tmp; resend = true; }
+                        break;
+                    case Status.line:
+                        auto tmp = c.line.indexOf(s.history[$-1]);
+                        if (tmp != position) { position = tmp; resend = true; }
+                        break;
+                }
+
+                Json[] alerts;
+                foreach(i; 0..c.broadcasts.length) {
+                    if (c.broadcasts[i].posted > last_broadcast) {
+                        alerts ~= c.broadcasts[i].msg;
+                        if (i == c.broadcasts.length-1) last_broadcast = c.broadcasts[i].posted;
+                        resend = true;
+                    }
+                }
+
+                if (resend)
+                    final switch(status) {
+                        case Status.lurk:
+                            if (s.history.length == 0) {
+                                socket.send(serializeToJsonString([
+                                    "type":Json("lurk"),
+                                    "crowd":Json(position),
+                                    "broadcasts":Json(alerts),
+                                ]));
+                            } else {
+                                socket.send(serializeToJsonString([
+                                    "type":Json("lurk"),
+                                    "crowd":Json(position),
+                                    "broadcasts":Json(alerts),
+                                    "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
+                                ]));
+                            }
+                            break;
+                        case Status.help:
                             socket.send(serializeToJsonString([
-                                "type":Json("lurk"),
-                                "crowd":Json(position),
-                                "broadcasts":Json(alerts),
-                            ]));
-                        } else {
-                            socket.send(serializeToJsonString([
-                                "type":Json("lurk"),
+                                "type":Json("help"),
+                                "by":Json(s.history[$-1].t.name),
                                 "crowd":Json(position),
                                 "broadcasts":Json(alerts),
                                 "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
                             ]));
-                        }
-                        break;
-                    case Status.help:
-                        socket.send(serializeToJsonString([
-                            "type":Json("help"),
-                            "by":Json(s.history[$-1].t.name),
-                            "crowd":Json(position),
-                            "broadcasts":Json(alerts),
-                            "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
-                        ]));
-                        break;
-                    case Status.hand:
-                        socket.send(serializeToJsonString([
-                            "type":Json("hand"),
-                            "crowd":Json(position),
-                            "broadcasts":Json(alerts),
-                            "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
-                        ]));
-                        break;
-                    case Status.line:
-                        socket.send(serializeToJsonString([
-                            "type":Json("line"),
-                            "index":Json(position),
-                            "broadcasts":Json(alerts),
-                            "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
-                        ]));
-                        break;
-                    case Status.report:
-                        if (s.history.length > 0) {
-                            auto h = s.history[$-1];
-                            if (h.t) {
-                                socket.send(serializeToJsonString([
-                                    "type":Json("report"),
-                                    "when":Json(h.fin),
-                                    "ta":Json(h.t.id),
-                                    "ta-name":Json(h.t.name),
-                                    "broadcasts":Json(alerts),
-                                ]));
+                            break;
+                        case Status.hand:
+                            socket.send(serializeToJsonString([
+                                "type":Json("hand"),
+                                "crowd":Json(position),
+                                "broadcasts":Json(alerts),
+                                "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
+                            ]));
+                            break;
+                        case Status.line:
+                            socket.send(serializeToJsonString([
+                                "type":Json("line"),
+                                "index":Json(position),
+                                "broadcasts":Json(alerts),
+                                "last-request-info":encodeRequestInfo(s.history[$-1].request_info),
+                            ]));
+                            break;
+                        case Status.report:
+                            if (s.history.length > 0) {
+                                auto h = s.history[$-1];
+                                if (h.t) {
+                                    socket.send(serializeToJsonString([
+                                        "type":Json("report"),
+                                        "when":Json(h.fin),
+                                        "ta":Json(h.t.id),
+                                        "ta-name":Json(h.t.name),
+                                        "broadcasts":Json(alerts),
+                                    ]));
+                                } else goto case Status.lurk;
                             } else goto case Status.lurk;
-                        } else goto case Status.lurk;
-                        break;
-                }
-            logInfo("Student "~s.id~" waiting");
-            c.event.wait;
-            logInfo("Student "~s.id~" done waiting");
+                            break;
+                    }
+                logInfo("Student "~s.id~" waiting");
+                c.event.wait;
+                logInfo("Student "~s.id~" done waiting");
+            }
+        } catch (Exception ex) {
+            try {
+                logError("Exception from student connection "~ex.toString);
+            } catch (Exception ex) {
+                logError("Exception from student connection [exception in converting to string]");
+            }
         }
     });
     
@@ -553,6 +591,7 @@ shared static this() {
     router.post("*", &uploadRoster);
 
     runTask(toDelegate(&trackSessions));
+    /* 
     import core.time : minutes;
     runTask({
         while (true) {
@@ -566,5 +605,6 @@ shared static this() {
                             c.close(s);
         }
     });
+    */
     listenHTTP(settings, router);
 }

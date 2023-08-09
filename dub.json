@@ -7,8 +7,8 @@
 	"copyright": "Copyright © 2017–2019, Luther A. Tychonievich",
 	"description": "Office hour queing backend",
 	"dependencies": {
-		"vibe-d": "~>0.9.3",
-		"vibe-d:tls": "~>0.9.3"
+		"vibe-d": "~>0.9.6",
+		"vibe-d:tls": "~>0.9.6"
 	},
 	"versions": [
 		"VibeDefaultMain"
