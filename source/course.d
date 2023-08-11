@@ -513,8 +513,8 @@ final class Course {
     
     
     void uploadRoster(Path)(Path rosterFileName) {
-        import collab_roster;
-        scope participants = readCollabRoster(rosterFileName.toString);
+        import csv_roster;
+        scope participants = readCSVRoster(rosterFileName.toString);
         foreach(k,v; participants)
             if (v[`role`] == `Student` || v[`role`] == `Waitlisted Student`)
                 addStudent(k, v[`name`], true);
