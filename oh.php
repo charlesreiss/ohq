@@ -21,6 +21,9 @@
         #gethelpform.status-lurk #gethelpformsubmitretract {
             display: none;
         }
+        #waiting table td {
+            border: 1px solid black;
+        }
     </style>
     <script type="text/javascript">//<!--
 'use strict';
@@ -153,7 +156,7 @@ function prettydate(t) {
     //console.log([t, d]);
     var n = new Date();
     var days = (n.getTime() - d.getTime())/1000;
-    if (days < 24*60*60) return timedelta(0,days) + ' ago';
+    if (days < 24*60*60) return d.toTimeString().substring(0, 5); 
     return d.toTimeString().substring(0,5) + '\n' + d.toDateString().substring(0, 10);
 }
 
@@ -260,6 +263,9 @@ function renderStudentRow(row, person, type) {
         row.insertCell().replaceChildren(
             document.createTextNode(prettydate(person.priority / Math.pow(2, 32)))
         );
+        row.insertCell().replaceChildren(
+            document.createTextNode(prettydate(person.request))
+        );
     }
     row.insertCell().replaceChildren(
         document.createTextNode(`${person.student_name} (${person.student})`)
@@ -298,6 +304,7 @@ function renderStudentHeader(row, type) {
     if (type == "waiting") {
         row.insertCell().textContent = 'pos';
         row.insertCell().textContent = 'last';
+        row.insertCell().textContent = 'since';
     }
     row.insertCell().textContent = 'name';
     row.insertCell().textContent = 'img';

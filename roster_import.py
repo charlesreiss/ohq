@@ -87,6 +87,8 @@ def archimedes_import(read_with_callback, directory):
     def _add(name, id, role, email, sections=None, **extra):
         nonlocal found
         found.add(id)
+        if isinstance(id, float):
+            return
         file = directory / 'users' / (id + '.json')
         if file.exists():
             data = json.load(file.open())
@@ -105,11 +107,18 @@ def archimedes_import(read_with_callback, directory):
     read_with_callback(_add)
     has_json = set()
     for item in (directory / 'users').iterdir():
-        if item.suffix == 'json':
+        if item.suffix == '.json':
             has_json.add(item)
-
     for name in has_json - found:
         print("extra user", name)
+    roster = {}
+    for item in (directory / 'users').iterdir():
+        print(item)
+        if item.suffix == '.json':
+            roster[item.stem] = json.loads(item.read_text())
+    with open(directory / 'meta' / 'roster.json', 'w') as fh:
+        json.dump(roster, fp=fh, indent=2)
+
 
 
 if __name__ == '__main__':
@@ -117,7 +126,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ohq-dir', default='/opt/ohq-cr4bd/logs')
     parser.add_argument('--ohq-host', default='https://kytos02.cs.virginia.edu:1112')
-    parser.add_argument('--course', default='cs3130')
+    parser.add_argument('--course')
     parser.add_argument('--archimedes-dir')
     parser.add_argument('--mode', default='upload')
     parser.add_argument('--canvas', default=None)
