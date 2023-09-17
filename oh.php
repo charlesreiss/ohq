@@ -270,8 +270,9 @@ function renderStudentRow(row, person, type) {
     row.insertCell().replaceChildren(
         document.createTextNode(`${person.student_name} (${person.student})`)
     );
-    var img = document.createElement("image");
-    img.setAttribute("src", `picture.php?user=${person.student}`);
+    var img = document.createElement("img");
+    img.setAttribute("src", `../picture.php?user=${person.student}`);
+    img.setAttribute("width", `100`);
     row.insertCell().replaceChildren(img);
     for (var item of helpInfo) {
         row.insertCell().replaceChildren(
