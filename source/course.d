@@ -603,6 +603,12 @@ final class Course {
                 if (h.t == this) h = line.front;
                 return help(from, h, when);
             }
+            foreach (h; hands.dup) {
+                logInfo("help consideration from non-line");
+                if (h.t != from) {
+                    return help(from, h, when);
+                }
+            }
             return false;
         } catch(Exception ex) { logException(ex, "exception in helpFirst"); return false; }
     }
