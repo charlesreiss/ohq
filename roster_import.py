@@ -16,7 +16,7 @@ def canvas_read_with_callback(input_file, output_function):
         output_function(
             name='{} {}'.format(item['First Name'].strip(), item['Last Name']),
             id=item['Login ID'],
-            role=item['Role'],
+            role=item['Role(s)'],
             sections=item['Sections'],
             email=item['Email']
         )
